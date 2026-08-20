@@ -18,7 +18,7 @@ BRUSH_IMAGE="${BRUSH_IMAGE:-moonshine-brush:latest}"
 APK_IMAGE="${APK_IMAGE:-moonshine-apk:latest}"
 SWAY_IMAGE="${SWAY_IMAGE:-moonshine-sway:latest}"
 UTILS="${UTILS:-none}"
-HELPER="${HELPER:-docker.io/library/alpine:3.22}"
+HELPER="${HELPER:-docker.io/library/alpine:3.24}"
 
 # Builds every image once, before any test runs, rather than per-test: these
 # are real container builds (sway-pixman compiles wlroots+sway from source,
@@ -28,9 +28,20 @@ HELPER="${HELPER:-docker.io/library/alpine:3.22}"
 setup_suite() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    make -C "$root" base apk brush sway \
+    local targets="base apk brush"
+
+    # The sway image installs sway-pixman from a moonshine release, so it can
+    # only be built once one exists. Without MOONSHINE_VERSION, skip building
+    # it -- the Makefile skips its tests to match.
+    if [ -n "${MOONSHINE_VERSION:-}" ]; then
+        targets="$targets sway"
+    fi
+
+    # shellcheck disable=SC2086
+    make -C "$root" $targets \
         ENGINE="$ENGINE" BASE_IMAGE="$BASE_IMAGE" APK_IMAGE="$APK_IMAGE" \
-        BRUSH_IMAGE="$BRUSH_IMAGE" SWAY_IMAGE="$SWAY_IMAGE" UTILS="$UTILS"
+        BRUSH_IMAGE="$BRUSH_IMAGE" SWAY_IMAGE="$SWAY_IMAGE" UTILS="$UTILS" \
+        MOONSHINE_VERSION="${MOONSHINE_VERSION:-}"
 }
 
 # Unpack an image's filesystem into /r in a helper container and run a script
@@ -161,7 +172,12 @@ test_repositories_configured() {
     apk_fs 'test "$(grep -c dl-cdn etc/apk/repositories)" = 2' || fail "apk repositories not configured"
 }
 test_alpine_signing_keys_present() {
-    apk_fs 'test "$(ls etc/apk/keys | grep -c alpine-devel)" -ge 5' || fail "alpine signing keys missing"
+    # Count, not a specific number: Alpine prunes retired keys between
+    # releases (3.22 shipped 5, 3.24 ships 2), so anything higher than 1 is an
+    # assertion about Alpine's key rotation rather than about this image.
+    # That apk can actually verify a signature is covered by
+    # test_apk_installs_a_package.
+    apk_fs 'test "$(ls etc/apk/keys | grep -c alpine-devel)" -ge 1' || fail "alpine signing keys missing"
 }
 test_apk_runs() {
     run_in "$APK_IMAGE" /sbin/apk --version || fail "apk did not run"
@@ -183,15 +199,15 @@ test_sway_installed() {
 # The point of building our own: Alpine's sway drags mesa + llvm20-libs in
 # through wlroots' GLES/Vulkan renderers, 245 MB that never renders anything
 # under WLR_RENDERER=pixman.
-test_no_mesa_llvm_vulkan_pkgs() {
+test_sway_no_mesa_llvm_vulkan_pkgs() {
     sway_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "mesa|llvm|vulkan|spirv"' \
         || fail "found a mesa/llvm/vulkan package"
 }
-test_no_libegl_libgallium_files() {
+test_sway_no_libegl_libgallium_files() {
     sway_fs '! find . \( -name "libEGL*" -o -name "libgallium*" -o -name "libLLVM*" -o -name "libgbm*" \) | grep -q .' \
         || fail "found a libEGL/libgallium/libLLVM/libgbm file"
 }
-test_wlroots_is_linked_static() {
+test_sway_wlroots_is_linked_static() {
     sway_fs '! find . -name "libwlroots*" | grep -q .' || fail "found a dynamic libwlroots"
 }
 test_sway_pixman_is_our_package() {
@@ -203,19 +219,19 @@ test_sway_image_still_no_busybox() {
 test_sway_image_brush_is_still_bin_sh() {
     sway_fs 'test "$(readlink bin/sh)" = /usr/bin/brush' || fail "/bin/sh is not brush in the sway image"
 }
-test_moonshine_config_installed() {
+test_sway_config_installed() {
     sway_fs 'grep -q "moonshine sway" etc/sway/config' || fail "moonshine sway config not installed"
 }
-test_coreutils_available_in_sway_image() {
+test_sway_coreutils_available() {
     run_in "$SWAY_IMAGE" /bin/sh -c 'ls / >/dev/null' || fail "coreutils not available in the sway image"
 }
 # Alpine ships sway with cap_sys_nice=ep, and a file capability outside the
 # container's bounding set makes execve fail with EPERM. The build strips it,
 # so this must work with no --cap-add at all.
-test_runs_without_extra_caps() {
+test_sway_runs_without_extra_caps() {
     run_in "$SWAY_IMAGE" /usr/bin/sway --version || fail "sway did not run without extra capabilities"
 }
-test_comes_up_headless() {
+test_sway_comes_up_headless() {
     $ENGINE run --rm "$SWAY_IMAGE" /bin/sh /usr/local/bin/sway-smoke | grep -q '"width": 1280' \
         || fail "sway did not come up headless at the expected size"
 }
