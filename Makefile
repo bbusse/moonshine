@@ -18,7 +18,7 @@ UTILS         ?= none
 
 # The moonshine release sway-pixman was published under (see `make rc`/`make
 # release`) and the sway-pixman pkgver/pkgrel it published, from
-# sway/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
+# sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists.
 MOONSHINE_VERSION ?=
 SWAY_PKGVER   ?= 1.12
@@ -49,7 +49,7 @@ brush: ## build the scratch+brush image (no libc at all)
 
 test: ## verify the images behave
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
-	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) ./scripts/test.sh
+	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) ./test.sh
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
@@ -70,10 +70,10 @@ brush-shell: brush ## interactive brush in the libc-free image
 	$(ENGINE) run --rm -it $(BRUSH_IMAGE)
 
 brush-checksums: ## re-pin brush apk checksums for BRUSH_VERSION
-	./scripts/brush-checksums.sh $(BRUSH_VERSION) $(BRUSH_PKGREL)
+	./brush/checksums.sh $(BRUSH_VERSION) $(BRUSH_PKGREL)
 
 sway-checksums: ## re-pin sway-pixman apk checksums for MOONSHINE_VERSION/SWAY_PKGVER
-	./scripts/sway-checksums.sh $(MOONSHINE_VERSION) $(SWAY_PKGVER) $(SWAY_PKGREL)
+	./sway-pixman/checksums.sh $(MOONSHINE_VERSION) $(SWAY_PKGVER) $(SWAY_PKGREL)
 
 clean: ## remove built images
 	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) 2>/dev/null
