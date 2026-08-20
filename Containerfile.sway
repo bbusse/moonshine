@@ -1,0 +1,49 @@
+# moonshine sway -- a Wayland compositor on an apk image,
+# software rendering only
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
+ARG APK_IMAGE=moonshine-apk:latest
+ARG ALPINE_TAG=3.22
+ARG MOONSHINE_VERSION
+ARG SWAY_PKGVER=1.12
+ARG SWAY_PKGREL=0
+
+FROM docker.io/library/alpine:${ALPINE_TAG} AS swayfetch
+ARG MOONSHINE_VERSION
+ARG SWAY_PKGVER
+ARG SWAY_PKGREL
+COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
+COPY sway-pixman/checksums.txt /checksums.txt
+COPY sway-pixman/fetch.sh /fetch.sh
+RUN set -eu; \
+    MOONSHINE_VERSION="${MOONSHINE_VERSION}" SWAY_PKGVER="${SWAY_PKGVER}" SWAY_PKGREL="${SWAY_PKGREL}" /fetch.sh; \
+    mkdir -p /packages && mv /sway-pixman.apk /packages/sway-pixman.apk
+
+FROM ${APK_IMAGE}
+
+# uutils-coreutils is not optional here the way it is in the base image: sway
+# shells out (e.g. it calls uname during startup)
+COPY --from=swayfetch /packages/sway-pixman.apk /tmp/packages/sway-pixman.apk
+RUN apk add --no-cache uutils-coreutils /tmp/packages/sway-pixman.apk \
+    && rm -rf /tmp/packages
+
+COPY sway-pixman/config /etc/sway/config
+COPY sway-pixman/smoke.sh /usr/local/bin/sway-smoke
+RUN mkdir -p /etc/sway/config.d /run/user/0 && chmod 0700 /run/user/0
+
+ENV XDG_RUNTIME_DIR=/run/user/0 \
+    WLR_BACKENDS=headless \
+    WLR_RENDERER=pixman \
+    WLR_LIBINPUT_NO_DEVICES=1 \
+    WLR_HEADLESS_OUTPUTS=1 \
+    XDG_SESSION_TYPE=wayland
+
+LABEL org.opencontainers.image.title="moonshine-sway" \
+      org.opencontainers.image.description="sway, software rendering only, on a busybox-free musl image" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+
+CMD ["/usr/bin/sway"]

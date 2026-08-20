@@ -1,0 +1,87 @@
+# moonshine base image -- musl + brush, from scratch
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Stage 1 uses Alpine purely as a host for apk; nothing from it is inherited.
+# apk --root builds a fresh rootfs from base/packages, brush is added from a
+# signed apk, and stage 2 copies that tree onto an empty image.
+#
+# There is no busybox and no other shell: /bin/sh is brush. See README for
+# what that costs (no ls, no cat, no grep -- brush builtins only, unless you
+# build with UTILS=uutils)
+
+ARG ALPINE_TAG=3.22
+ARG ALPINE_BRANCH=v3.22
+
+FROM docker.io/library/alpine:${ALPINE_TAG} AS bootstrap
+ARG ALPINE_BRANCH
+
+# brush is not in the Alpine repos -- it comes from a signed apk published at
+# github.com/bbusse/alpine-brush-build. It is the shell, so it is not optional
+ARG BRUSH_VERSION=0.4.0
+ARG BRUSH_PKGREL=0
+
+# none  = brush builtins only
+# uutils = add uutils-coreutils, the Rust coreutils (~7 MB, dynamic against musl)
+ARG UTILS=none
+
+# Put apk itself in the image, so it can install packages at runtime rather
+# than only being assembled by one. Off by default: an image that cannot
+# change after it is built is the point of everything else here
+ARG WITH_APK=0
+
+ENV ROOT=/rootfs
+
+COPY base/packages /packages
+RUN set -eu; \
+    pkgs="$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' /packages | tr '\n' ' ')"; \
+    case "${UTILS}" in \
+        none) ;; \
+        uutils) pkgs="$pkgs uutils-coreutils" ;; \
+        *) echo "unknown UTILS=${UTILS} (want: none, uutils)" >&2; exit 1 ;; \
+    esac; \
+    if [ "${WITH_APK}" = "1" ]; then pkgs="$pkgs apk-tools alpine-keys"; fi; \
+    apk add --no-cache --initdb --root "$ROOT" \
+        --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main" \
+        --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community" \
+        --keys-dir /etc/apk/keys \
+        $pkgs
+
+COPY base/layout.sh /layout.sh
+RUN /layout.sh
+
+COPY base/apk.sh /apk.sh
+RUN set -eu; \
+    if [ "${WITH_APK}" = "1" ]; then ALPINE_BRANCH="${ALPINE_BRANCH}" /apk.sh; fi
+
+COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
+COPY brush/checksums.txt /checksums.txt
+COPY brush/fetch.sh /fetch.sh
+COPY base/shell.sh /shell.sh
+COPY brush/binsh.sh /binsh.sh
+RUN set -eu; \
+    BRUSH_VERSION="${BRUSH_VERSION}" BRUSH_PKGREL="${BRUSH_PKGREL}" /fetch.sh; \
+    install -D -m 0644 /etc/apk/keys/apk-releases.rsa.pub \
+        "$ROOT/etc/apk/keys/apk-releases.rsa.pub"; \
+    apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /brush.apk; \
+    rm -f /brush.apk; \
+    BRUSH_VERSION="${BRUSH_VERSION}" BRUSH_PKGREL="${BRUSH_PKGREL}" /binsh.sh; \
+    /shell.sh
+
+RUN set -eu; \
+    rm -rf "$ROOT"/var/cache/apk/*; \
+    if [ "${WITH_APK}" != "1" ]; then rmdir "$ROOT/var/cache/apk" 2>/dev/null || true; fi; \
+    apk info -v --root "$ROOT" | sort > "$ROOT/etc/moonshine-manifest"; \
+    if apk info -e --root "$ROOT" busybox >/dev/null 2>&1; then \
+        echo "busybox got pulled in -- check the dependency chain" >&2; exit 1; \
+    fi
+
+FROM scratch
+COPY --from=bootstrap /rootfs/ /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LABEL org.opencontainers.image.title="moonshine-base" \
+      org.opencontainers.image.description="Minimal musl rootfs with brush as the only shell" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+CMD ["/bin/sh"]
