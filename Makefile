@@ -3,7 +3,7 @@
 
 HASH   := $(shell git rev-parse --short HEAD)
 REMOTE ?= gh
-RELEASE_BRANCH ?= main
+RELEASE_BRANCH ?= ci
 
 ENGINE      ?= podman
 ALPINE_TAG  ?= 3.22
