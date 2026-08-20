@@ -28,20 +28,17 @@ HELPER="${HELPER:-docker.io/library/alpine:3.24}"
 setup_suite() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    local targets="base apk brush"
+    # MOONSHINE_VERSION is only passed through when the caller set it:
+    # `make VAR=` on the command line overrides the Makefile's `?=` default
+    # with an empty string, which would leave the sway fetch with no release
+    # to pull from. CI runs bash_unit directly, with no such variable set.
+    local -a args=(
+        ENGINE="$ENGINE" BASE_IMAGE="$BASE_IMAGE" APK_IMAGE="$APK_IMAGE"
+        BRUSH_IMAGE="$BRUSH_IMAGE" SWAY_IMAGE="$SWAY_IMAGE" UTILS="$UTILS"
+    )
+    [ -n "${MOONSHINE_VERSION:-}" ] && args+=(MOONSHINE_VERSION="$MOONSHINE_VERSION")
 
-    # The sway image installs sway-pixman from a moonshine release, so it can
-    # only be built once one exists. Without MOONSHINE_VERSION, skip building
-    # it -- the Makefile skips its tests to match.
-    if [ -n "${MOONSHINE_VERSION:-}" ]; then
-        targets="$targets sway"
-    fi
-
-    # shellcheck disable=SC2086
-    make -C "$root" $targets \
-        ENGINE="$ENGINE" BASE_IMAGE="$BASE_IMAGE" APK_IMAGE="$APK_IMAGE" \
-        BRUSH_IMAGE="$BRUSH_IMAGE" SWAY_IMAGE="$SWAY_IMAGE" UTILS="$UTILS" \
-        MOONSHINE_VERSION="${MOONSHINE_VERSION:-}"
+    make -C "$root" base apk brush sway "${args[@]}"
 }
 
 # Unpack an image's filesystem into /r in a helper container and run a script
@@ -49,6 +46,10 @@ setup_suite() {
 fs() {
     local image="$1" script="$2" cid rc=0
     cid="$($ENGINE create --quiet "$image" 2>/dev/null)"
+    if [ -z "$cid" ]; then
+        echo "image $image does not exist -- refusing to assert against an empty export" >&2
+        return 1
+    fi
     $ENGINE export "$cid" 2>/dev/null \
         | $ENGINE run --rm -i "$HELPER" sh -c \
             "mkdir -p /r && tar -C /r -xf - >/dev/null 2>&1; cd /r && { $script ; }" \

@@ -25,9 +25,6 @@ UTILS         ?= none
 # sensible to fall back to before a release exists.
 MOONSHINE_VERSION ?= v0-rc0
 
-# No release means no sway-pixman apk to fetch, so the sway image cannot be
-# built; skip its tests rather than failing the suite on a known-absent input.
-TEST_SKIP := $(if $(strip $(MOONSHINE_VERSION)),,-s ^test_sway)
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
 
@@ -58,7 +55,7 @@ test: ## verify the images behave (builds them first if needed)
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
 	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) \
 	  MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
-	  bash_unit $(TEST_SKIP) tests/test_smoke.sh
+	  bash_unit tests/test_smoke.sh
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
