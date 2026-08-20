@@ -50,9 +50,10 @@ sway: apk ## build the sway image on top of the apk image
 brush: ## build the scratch+brush image (no libc at all)
 	$(ENGINE) build $(PLATFORM_ARG) $(BRUSHIMG_ARGS) -f Containerfile.brush -t $(BRUSH_IMAGE) .
 
-test: ## verify the images behave
+test: ## verify the images behave (builds them first if needed)
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
-	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) ./test.sh
+	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) \
+	  bash_unit tests/test_smoke.sh
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
