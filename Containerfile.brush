@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # moonshine brush image -- a shell, no libc
 #
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
@@ -15,25 +16,61 @@ ARG ALPINE_TAG=3.22
 FROM docker.io/library/alpine:${ALPINE_TAG} AS build
 ARG BRUSH_VERSION=0.4.0
 ARG BRUSH_PKGREL=0
-COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
-COPY brush/checksums.txt /checksums.txt
-# sha256 pin plus apk's own signature check -- see Containerfile.base. No
-# comments inside the RUN: continuation lines are joined before the shell runs.
-RUN set -eu; \
-    ARCH="$(apk --print-arch)"; \
-    ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"; \
-    echo "fetching $ASSET"; \
-    wget -q -O /brush.apk \
-        "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"; \
-    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
-    if [ -z "$expected" ]; then \
-        echo "no checksum pinned for $ASSET -- add one to brush/checksums.txt" >&2; \
-        exit 1; \
-    fi; \
-    echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null; \
-    apk add --no-cache --initdb --root /out --keys-dir /etc/apk/keys /brush.apk; \
-    ! ldd /out/usr/bin/brush 2>/dev/null | grep -q '=>'; \
-    mkdir -p /empty/tmp; chmod 1777 /empty/tmp
+# Key and checksums inline, so this Containerfile needs nothing from the
+# build context. Regenerate the key from bbusse/alpine-brush-build if rotated.
+RUN <<'SCRIPT'
+set -eu
+cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0jsW8N8Taync3kV83e9s
+BbrGY4UGkTmVE4ASeHi6CpNKWoSMdrRpEGJQv38BfzFSIXKm64NbmGIRE9PcYvNa
+s+nNxasAJu8TH+XY/ZNx3oUABpNEpy5UCNSGQmCLkKi7Cdk3WBikb5OPPAdRznqV
+bN0dEPFv+Xr2fXljDzHDdb98Zct6zbmvkkCpBuRuHzmybyCbsZFC1171azJB3k+N
+DMDFfGD51TX62l+mNjwgEaMTEwg+iwR5LroR63q27bQrIb4E2BqmGdPG67Tm1oK9
+ArB5zx5STq8iALRI8j7sJUo9mFHMtt7DkOv0Vxn4j/OAj62HK5Ie39PeCLOgDT1P
+2lM0tyv8jnd4v3PU5VYqnfrUjomqsTUIg61Xjy5WNTtH3nFMS/5Gk+kcrfGbKcMO
+haE+8h45QnyqEF6UWTjciBsvoPyrM82ni6t/8AIoGDe4GCZYdAD4RzwUmxdU2wOz
+EqsHkXDzx/3WbUAZF9f+5bYFu7/qe8qQXzwU1nPBJEvv1wvFj4qzh0ru6BIUvPfs
+t1PBAGis/Dkisefx0gyaNms3q7rBu8xRylRIDSIWZZGoPscCzLpZBIsud3SfFuLz
+61Rb9FKvWilEWBr5uq2tQCQehyh1oBHQXxYjb7EvojQ7tFdRmtY9jy1GQT2a1TNf
+LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
+-----END PUBLIC KEY-----
+KEY
+cat > /checksums.txt <<'SUMS'
+# sha256 of the brush apks published at
+# https://github.com/bbusse/alpine-brush-build/releases
+# Regenerate with: make brush-checksums BRUSH_VERSION=x.y.z
+a610db78a6d3f0c757c0f1a70fe6d01db399939e01c226c8a6d18d22aeb4bc19  aarch64-brush-0.4.0-r0.apk
+98bdca3b87a5fbef6dcd875afd4dd6b307774b916175d1b75c56750ce7a68003  x86_64-brush-0.4.0-r0.apk
+SUMS
+SCRIPT
+
+# sha256 pin plus apk's own signature check -- see Containerfile.base.
+RUN <<'SCRIPT'
+set -eu
+ARCH="$(apk --print-arch)"
+ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"
+echo "fetching $ASSET"
+wget -q -O /brush.apk \
+    "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"
+
+expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $ASSET" >&2
+    exit 1
+fi
+echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+
+apk add --no-cache --initdb --root /out --keys-dir /etc/apk/keys /brush.apk
+
+# The whole premise of this image: if brush ever ships dynamically linked,
+# fail here rather than at run time, where the error names the wrong thing.
+! ldd /out/usr/bin/brush 2>/dev/null | grep -q '=>'
+
+mkdir -p /empty/tmp
+chmod 1777 /empty/tmp
+SCRIPT
 
 FROM scratch
 COPY --from=build /out/usr/bin/brush /bin/brush
@@ -42,6 +79,7 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME=/
 LABEL org.opencontainers.image.title="moonshine-brush" \
       org.opencontainers.image.description="brush, statically linked, on an empty image" \
-      org.opencontainers.image.source="https://github.com/bbusse/alpine-brush-build"
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
 
 ENTRYPOINT ["/bin/brush"]

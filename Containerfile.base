@@ -1,15 +1,22 @@
-# moonshine base image -- musl + brush, from scratch
-#
+# syntax=docker/dockerfile:1
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
 # SPDX-License-Identifier: BSD-3-Clause
 #
+# moonshine base image -- musl + brush, from scratch
+#
 # Stage 1 uses Alpine purely as a host for apk; nothing from it is inherited.
-# apk --root builds a fresh rootfs from base/packages, brush is added from a
-# signed apk, and stage 2 copies that tree onto an empty image.
+# apk --root builds a fresh rootfs, brush is added from a signed apk, and
+# stage 2 copies that tree onto an empty image.
 #
 # There is no busybox and no other shell: /bin/sh is brush. See README for
 # what that costs (no ls, no cat, no grep -- brush builtins only, unless you
 # build with UTILS=uutils)
+#
+# Everything this build needs is inline: the Containerfile copies nothing from
+# the build context, so it works from a checkout of this file alone. The
+# parser directive above is what buys us RUN heredocs, which unlike
+# backslash-joined lines can contain comments without eating the rest of the
+# script.
 
 ARG ALPINE_TAG=3.22
 ARG ALPINE_BRANCH=v3.22
@@ -33,66 +40,238 @@ ARG WITH_APK=0
 
 ENV ROOT=/rootfs
 
-COPY base/packages /packages
-RUN set -eu; \
-    pkgs="$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' /packages | tr '\n' ' ')"; \
-    case "${UTILS}" in \
-        none) ;; \
-        uutils) pkgs="$pkgs uutils-coreutils" ;; \
-        *) echo "unknown UTILS=${UTILS} (want: none, uutils)" >&2; exit 1 ;; \
-    esac; \
-    if [ "${WITH_APK}" = "1" ]; then pkgs="$pkgs apk-tools alpine-keys"; fi; \
-    apk add --no-cache --initdb --root "$ROOT" \
-        --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main" \
-        --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community" \
-        --keys-dir /etc/apk/keys \
-        $pkgs
+# Deliberately absent from this list: busybox and alpine-baselayout.
+# alpine-baselayout carries a file dependency on /bin/sh, which only
+# busybox-binsh provides, so requiring it drags busybox back in. We take
+# alpine-baselayout-data (the /etc files, no dependencies) and build the
+# directory tree ourselves below.
+RUN <<'SCRIPT'
+set -eu
+pkgs="musl"                        # the libc and /lib/ld-musl-$ARCH.so.1 loader
+pkgs="$pkgs alpine-baselayout-data" # /etc/passwd, /etc/group, /etc/hosts, /etc/shells
+pkgs="$pkgs ca-certificates-bundle" # /etc/ssl/certs/ca-certificates.crt, for any TLS
+pkgs="$pkgs tzdata"                 # without this, local time silently yields UTC
 
-COPY base/layout.sh /layout.sh
-RUN /layout.sh
+case "$UTILS" in
+    none) ;;
+    uutils) pkgs="$pkgs uutils-coreutils" ;;
+    *) echo "unknown UTILS=$UTILS (want: none, uutils)" >&2; exit 1 ;;
+esac
 
-COPY base/apk.sh /apk.sh
-RUN set -eu; \
-    if [ "${WITH_APK}" = "1" ]; then ALPINE_BRANCH="${ALPINE_BRANCH}" /apk.sh; fi
+if [ "$WITH_APK" = "1" ]; then
+    pkgs="$pkgs apk-tools alpine-keys"
+fi
 
-COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
-COPY brush/checksums.txt /checksums.txt
-COPY base/shell.sh /shell.sh
-COPY brush/binsh.sh /binsh.sh
+apk add --no-cache --initdb --root "$ROOT" \
+    --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main" \
+    --repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community" \
+    --keys-dir /etc/apk/keys \
+    $pkgs
+SCRIPT
+
+# The filesystem layout alpine-baselayout would have provided, minus its
+# /bin/sh dependency on busybox.
+RUN <<'SCRIPT'
+set -eu
+ROOT="${ROOT:?}"
+
+for d in bin sbin lib \
+         usr/bin usr/sbin usr/lib usr/share usr/local/bin usr/local/sbin usr/local/lib \
+         etc/profile.d etc/apk/keys \
+         var/log var/cache var/lib var/spool var/empty \
+         run root home media mnt opt srv \
+         dev proc sys tmp var/tmp; do
+    mkdir -p "$ROOT/$d"
+done
+
+chmod 1777 "$ROOT/tmp" "$ROOT/var/tmp"
+chmod 0700 "$ROOT/root"
+chmod 0555 "$ROOT/var/empty"
+
+# These two are symlinks in a normal Alpine root. Test with -L, not -e:
+# both point at paths that do not exist in the build stage, so -e is false
+# even when the link is already there (alpine-baselayout-data ships /etc/mtab).
+[ -L "$ROOT/var/run" ] || ln -s /run "$ROOT/var/run"
+[ -L "$ROOT/etc/mtab" ] || ln -s /proc/mounts "$ROOT/etc/mtab"
+SCRIPT
+
+# Repositories and cache, so apk works inside the image. Only when it is there.
+RUN <<'SCRIPT'
+set -eu
+if [ "$WITH_APK" != "1" ]; then exit 0; fi
+BRANCH="${ALPINE_BRANCH:?}"
+ROOT="${ROOT:?}"
+BRANCH="${ALPINE_BRANCH:?}"
+
+[ -x "$ROOT/sbin/apk" ] || { echo "apk-tools not installed" >&2; exit 1; }
+
+mkdir -p "$ROOT/etc/apk" "$ROOT/var/cache/apk"
+cat > "$ROOT/etc/apk/repositories" <<REPOS
+https://dl-cdn.alpinelinux.org/alpine/${BRANCH}/main
+https://dl-cdn.alpinelinux.org/alpine/${BRANCH}/community
+REPOS
+
+# apk resolves this relative to its own root, so the cache has to be reachable
+# from inside the image rather than from the build stage.
+ln -sfn /var/cache/apk "$ROOT/etc/apk/cache"
+SCRIPT
+
+# The key the brush release is signed with. Inline so the build needs no
+# context; regenerate from bbusse/alpine-brush-build if it is ever rotated.
+RUN <<'SCRIPT'
+set -eu
+cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0jsW8N8Taync3kV83e9s
+BbrGY4UGkTmVE4ASeHi6CpNKWoSMdrRpEGJQv38BfzFSIXKm64NbmGIRE9PcYvNa
+s+nNxasAJu8TH+XY/ZNx3oUABpNEpy5UCNSGQmCLkKi7Cdk3WBikb5OPPAdRznqV
+bN0dEPFv+Xr2fXljDzHDdb98Zct6zbmvkkCpBuRuHzmybyCbsZFC1171azJB3k+N
+DMDFfGD51TX62l+mNjwgEaMTEwg+iwR5LroR63q27bQrIb4E2BqmGdPG67Tm1oK9
+ArB5zx5STq8iALRI8j7sJUo9mFHMtt7DkOv0Vxn4j/OAj62HK5Ie39PeCLOgDT1P
+2lM0tyv8jnd4v3PU5VYqnfrUjomqsTUIg61Xjy5WNTtH3nFMS/5Gk+kcrfGbKcMO
+haE+8h45QnyqEF6UWTjciBsvoPyrM82ni6t/8AIoGDe4GCZYdAD4RzwUmxdU2wOz
+EqsHkXDzx/3WbUAZF9f+5bYFu7/qe8qQXzwU1nPBJEvv1wvFj4qzh0ru6BIUvPfs
+t1PBAGis/Dkisefx0gyaNms3q7rBu8xRylRIDSIWZZGoPscCzLpZBIsud3SfFuLz
+61Rb9FKvWilEWBr5uq2tQCQehyh1oBHQXxYjb7EvojQ7tFdRmtY9jy1GQT2a1TNf
+LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
+-----END PUBLIC KEY-----
+KEY
+cat > /checksums.txt <<'SUMS'
+# sha256 of the brush apks published at
+# https://github.com/bbusse/alpine-brush-build/releases
+# Regenerate with: make brush-checksums BRUSH_VERSION=x.y.z
+a610db78a6d3f0c757c0f1a70fe6d01db399939e01c226c8a6d18d22aeb4bc19  aarch64-brush-0.4.0-r0.apk
+98bdca3b87a5fbef6dcd875afd4dd6b307774b916175d1b75c56750ce7a68003  x86_64-brush-0.4.0-r0.apk
+SUMS
+SCRIPT
+
 # Two independent checks on the downloaded apk, answering different questions:
 # the sha256 pin says "the same artifact we pinned", which catches a re-cut
 # release under an existing tag; apk's signature check says "built by the key
 # we trust". Neither subsumes the other, so both run.
-#
-# No comments inside the RUN below: the parser joins continuation lines before
-# the shell sees them, so a '#' would comment out everything after it.
-RUN set -eu; \
-    ARCH="$(apk --print-arch)"; \
-    ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"; \
-    echo "fetching $ASSET"; \
-    wget -q -O /brush.apk \
-        "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"; \
-    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
-    if [ -z "$expected" ]; then \
-        echo "no checksum pinned for $ASSET -- add one to brush/checksums.txt" >&2; \
-        exit 1; \
-    fi; \
-    echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null; \
-    echo "checksum ok"; \
-    install -D -m 0644 /etc/apk/keys/apk-releases.rsa.pub \
-        "$ROOT/etc/apk/keys/apk-releases.rsa.pub"; \
-    apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /brush.apk; \
-    rm -f /brush.apk; \
-    BRUSH_VERSION="${BRUSH_VERSION}" BRUSH_PKGREL="${BRUSH_PKGREL}" /binsh.sh; \
-    /shell.sh
+RUN <<'SCRIPT'
+set -eu
+ARCH="$(apk --print-arch)"
+ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"
+echo "fetching $ASSET"
+wget -q -O /brush.apk \
+    "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"
 
-RUN set -eu; \
-    rm -rf "$ROOT"/var/cache/apk/*; \
-    if [ "${WITH_APK}" != "1" ]; then rmdir "$ROOT/var/cache/apk" 2>/dev/null || true; fi; \
-    apk info -v --root "$ROOT" | sort > "$ROOT/etc/moonshine-manifest"; \
-    if apk info -e --root "$ROOT" busybox >/dev/null 2>&1; then \
-        echo "busybox got pulled in -- check the dependency chain" >&2; exit 1; \
-    fi
+expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $ASSET" >&2
+    exit 1
+fi
+echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+
+install -D -m 0644 /etc/apk/keys/apk-releases.rsa.pub \
+    "$ROOT/etc/apk/keys/apk-releases.rsa.pub"
+apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /brush.apk
+rm -f /brush.apk
+SCRIPT
+
+# Build and install brush-binsh, the package that declares brush as the
+# provider of /bin/sh.
+RUN <<'SCRIPT'
+set -eu
+VERSION="${BRUSH_VERSION:?}"
+PKGREL="${BRUSH_PKGREL:-0}"
+ROOT="${ROOT:?}"
+VERSION="${BRUSH_VERSION:?}"
+PKGREL="${BRUSH_PKGREL:-0}"
+# abuild runs as an unprivileged user and has to read the private key, so it
+# lives in the builder's home; only the public half goes where apk looks.
+KEY=/home/builder/.abuild/moonshine-local.rsa
+
+apk add --no-cache abuild >/dev/null
+adduser -D -G abuild builder 2>/dev/null || true
+mkdir -p /home/builder/.abuild
+
+openssl genrsa -out "$KEY" 4096 2>/dev/null
+# abuild-sign reads the public half from beside the private one, and names the
+# signature after that filename; apk then looks the key up by the same name.
+openssl rsa -in "$KEY" -pubout -out "${KEY}.pub" 2>/dev/null
+install -m 0644 "${KEY}.pub" /etc/apk/keys/moonshine-local.rsa.pub
+
+W=/tmp/aports/moonshine/brush-binsh
+mkdir -p "$W"
+cat > /home/builder/.abuild/abuild.conf <<CONF
+PACKAGER_PRIVKEY="$KEY"
+PACKAGER="moonshine <none@localhost>"
+CONF
+
+cat > "$W/APKBUILD" <<APKBUILD
+pkgname=brush-binsh
+pkgver=${VERSION}
+pkgrel=${PKGREL}
+pkgdesc="brush as /bin/sh"
+url="https://github.com/reubeno/brush"
+arch="all"
+license="MIT"
+depends="brush=${VERSION}-r${PKGREL}"
+provides="/bin/sh cmd:sh"
+provider_priority=100
+source=""
+options="!check !strip !tracedeps"
+
+package() {
+    mkdir -p "\$pkgdir"/bin
+    ln -s /usr/bin/brush "\$pkgdir"/bin/sh
+}
+APKBUILD
+
+chown -R builder:abuild "$W" /home/builder
+# -d skips dependency install: there is nothing to compile, and the runtime
+# depends on brush would otherwise have to be resolvable in the build stage.
+su builder -c "cd $W && abuild -d" >/dev/null 2>&1
+
+pkg="$(find /home/builder/packages -name 'brush-binsh-*.apk' | head -n 1)"
+[ -n "$pkg" ] || { echo "brush-binsh build produced nothing" >&2; exit 1; }
+apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys "$pkg"
+
+[ "$(readlink "$ROOT/bin/sh")" = /usr/bin/brush ] \
+    || { echo "brush-binsh did not create /bin/sh" >&2; exit 1; }
+SCRIPT
+
+# Make brush the system shell in the rootfs.
+RUN <<'SCRIPT'
+set -eu
+BRUSH=/usr/bin/brush
+ROOT="${ROOT:?}"
+BRUSH=/usr/bin/brush
+
+[ -x "$ROOT$BRUSH" ] || { echo "brush not installed at $BRUSH" >&2; exit 1; }
+
+# /bin/sh belongs to the brush-binsh package (see brush/binsh.sh) so that apk
+# knows brush provides it; only the convenience alias is made by hand.
+[ -L "$ROOT/bin/sh" ] || { echo "/bin/sh missing -- brush-binsh not installed" >&2; exit 1; }
+ln -sf "$BRUSH" "$ROOT/bin/brush"
+
+# /etc/shells comes from alpine-baselayout-data listing busybox paths that do
+# not exist in this image. Replace it rather than append.
+printf '%s\n' "$BRUSH" /bin/sh /bin/brush > "$ROOT/etc/shells"
+
+# root's login shell is /bin/sh in baselayout-data, which now resolves to
+# brush; say so explicitly so the intent survives someone editing passwd.
+sed -i "s#^root:x:0:0:root:/root:/bin/sh\$#root:x:0:0:root:/root:${BRUSH}#" \
+    "$ROOT/etc/passwd"
+SCRIPT
+
+RUN <<'SCRIPT'
+set -eu
+rm -rf "$ROOT"/var/cache/apk/*
+if [ "$WITH_APK" != "1" ]; then
+    rmdir "$ROOT/var/cache/apk" 2>/dev/null || true
+fi
+apk info -v --root "$ROOT" | sort > "$ROOT/etc/moonshine-manifest"
+
+# The whole point, asserted: if anything dragged busybox back in, stop here.
+if apk info -e --root "$ROOT" busybox >/dev/null 2>&1; then
+    echo "busybox got pulled in -- check the dependency chain" >&2
+    exit 1
+fi
+SCRIPT
 
 FROM scratch
 COPY --from=bootstrap /rootfs/ /

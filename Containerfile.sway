@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # moonshine sway -- a Wayland compositor on an apk image,
 # software rendering only
 #
@@ -15,31 +16,59 @@ FROM docker.io/library/alpine:${ALPINE_TAG} AS swayfetch
 ARG MOONSHINE_VERSION
 ARG SWAY_PKGVER
 ARG SWAY_PKGREL
-COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
-COPY sway-pixman/checksums.txt /checksums.txt
+RUN <<'SCRIPT'
+set -eu
+cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0jsW8N8Taync3kV83e9s
+BbrGY4UGkTmVE4ASeHi6CpNKWoSMdrRpEGJQv38BfzFSIXKm64NbmGIRE9PcYvNa
+s+nNxasAJu8TH+XY/ZNx3oUABpNEpy5UCNSGQmCLkKi7Cdk3WBikb5OPPAdRznqV
+bN0dEPFv+Xr2fXljDzHDdb98Zct6zbmvkkCpBuRuHzmybyCbsZFC1171azJB3k+N
+DMDFfGD51TX62l+mNjwgEaMTEwg+iwR5LroR63q27bQrIb4E2BqmGdPG67Tm1oK9
+ArB5zx5STq8iALRI8j7sJUo9mFHMtt7DkOv0Vxn4j/OAj62HK5Ie39PeCLOgDT1P
+2lM0tyv8jnd4v3PU5VYqnfrUjomqsTUIg61Xjy5WNTtH3nFMS/5Gk+kcrfGbKcMO
+haE+8h45QnyqEF6UWTjciBsvoPyrM82ni6t/8AIoGDe4GCZYdAD4RzwUmxdU2wOz
+EqsHkXDzx/3WbUAZF9f+5bYFu7/qe8qQXzwU1nPBJEvv1wvFj4qzh0ru6BIUvPfs
+t1PBAGis/Dkisefx0gyaNms3q7rBu8xRylRIDSIWZZGoPscCzLpZBIsud3SfFuLz
+61Rb9FKvWilEWBr5uq2tQCQehyh1oBHQXxYjb7EvojQ7tFdRmtY9jy1GQT2a1TNf
+LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
+-----END PUBLIC KEY-----
+KEY
+cat > /checksums.txt <<'SUMS'
+# sha256 of the sway-pixman apks published at
+# https://github.com/bbusse/moonshine/releases
+# Regenerate with: make sway-checksums MOONSHINE_VERSION=<tag> SWAY_PKGVER=<x.y.z> SWAY_PKGREL=<n>
+#
+# Empty until the first moonshine release exists to pin checksums against -
+# building Containerfile.sway will fail with "no checksum pinned" until then.
+SUMS
+SCRIPT
+
 # Same two checks as Containerfile.base: a sha256 pin plus apk's own signature
 # verification. Unlike brush, sway-pixman is built and released by this repo's
 # own CI, so the asset name carries both its pkgver/pkgrel and the moonshine
 # release it was published under.
-#
-# No comments inside the RUN: continuation lines are joined before the shell
-# sees them, so a '#' would comment out the rest.
-RUN set -eu; \
-    : "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"; \
-    : "${SWAY_PKGVER:?set SWAY_PKGVER to the sway-pixman pkgver}"; \
-    ARCH="$(apk --print-arch)"; \
-    ASSET="sway-pixman-${SWAY_PKGVER}-r${SWAY_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"; \
-    echo "fetching $ASSET"; \
-    wget -q -O /sway-pixman.apk \
-        "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"; \
-    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
-    if [ -z "$expected" ]; then \
-        echo "no checksum pinned for $ASSET -- add one to sway-pixman/checksums.txt" >&2; \
-        exit 1; \
-    fi; \
-    echo "${expected}  /sway-pixman.apk" | sha256sum -c - >/dev/null; \
-    echo "checksum ok"; \
-    mkdir -p /packages && mv /sway-pixman.apk /packages/sway-pixman.apk
+RUN <<'SCRIPT'
+set -eu
+: "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"
+: "${SWAY_PKGVER:?set SWAY_PKGVER to the sway-pixman pkgver}"
+ARCH="$(apk --print-arch)"
+ASSET="sway-pixman-${SWAY_PKGVER}-r${SWAY_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
+echo "fetching $ASSET"
+wget -q -O /sway-pixman.apk \
+    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
+
+expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $ASSET" >&2
+    exit 1
+fi
+echo "${expected}  /sway-pixman.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+
+mkdir -p /packages
+mv /sway-pixman.apk /packages/sway-pixman.apk
+SCRIPT
 
 FROM ${APK_IMAGE}
 
@@ -49,9 +78,69 @@ COPY --from=swayfetch /packages/sway-pixman.apk /tmp/packages/sway-pixman.apk
 RUN apk add --no-cache uutils-coreutils /tmp/packages/sway-pixman.apk \
     && rm -rf /tmp/packages
 
-COPY sway-pixman/config /etc/sway/config
-COPY sway-pixman/smoke.sh /usr/local/bin/sway-smoke
-RUN mkdir -p /etc/sway/config.d /run/user/0 && chmod 0700 /run/user/0
+# Config and smoke script inline; by this point uutils is installed, so there
+# is a mkdir and a chmod to call.
+RUN <<'SCRIPT'
+set -eu
+mkdir -p /etc/sway/config.d /run/user/0
+chmod 0700 /run/user/0
+
+cat > /etc/sway/config <<'CFG'
+### moonshine sway -- minimal, headless by default.
+###
+### Deliberately binds nothing to programs the image does not ship. There is no
+### terminal, no launcher and no bar here; add packages and drop your own
+### snippets into /etc/sway/config.d/ instead of editing this file.
+
+set $mod Mod4
+
+# The headless backend comes up with no outputs, so clients have nowhere to
+# map. WLR_HEADLESS_OUTPUTS creates one; this sets its mode.
+output HEADLESS-1 resolution 1280x800
+
+bindsym $mod+Shift+e exit
+
+include /etc/sway/config.d/*
+CFG
+
+cat > /usr/local/bin/sway-smoke <<'SMOKE'
+#!/bin/sh
+set -eu
+
+/usr/bin/sway >/tmp/sway.log 2>&1 &
+
+# `set -e` and `cmd && cmd` do not mix: a false test as the last command in a
+# loop body kills the script, so every check here is an explicit if.
+SWAYSOCK=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    for s in "$XDG_RUNTIME_DIR"/sway-ipc.*; do
+        if [ -S "$s" ]; then
+            SWAYSOCK="$s"
+            break
+        fi
+    done
+    if [ -n "$SWAYSOCK" ]; then
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "$SWAYSOCK" ]; then
+    echo "sway never created an IPC socket; log follows:" >&2
+    cat /tmp/sway.log >&2
+    exit 1
+fi
+export SWAYSOCK
+
+swaymsg -t get_version
+swaymsg -t get_outputs --raw
+
+# The compositor takes the socket down with it, so swaymsg cannot read a reply
+# to its own exit. That is not a failure.
+swaymsg exit >/dev/null 2>&1 || true
+SMOKE
+chmod 0755 /usr/local/bin/sway-smoke
+SCRIPT
 
 ENV XDG_RUNTIME_DIR=/run/user/0 \
     WLR_BACKENDS=headless \
