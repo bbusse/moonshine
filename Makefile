@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
 HASH   := $(shell git rev-parse --short HEAD)
 REMOTE ?= gh
 RELEASE_BRANCH ?= main
