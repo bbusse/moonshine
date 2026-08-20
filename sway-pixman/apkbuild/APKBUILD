@@ -1,0 +1,80 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=sway-pixman
+pkgver=1.12
+_wlroots=0.20.2
+pkgrel=0
+pkgdesc="sway for software rendering only, with a pixman-only wlroots linked in"
+url="https://swaywm.org"
+arch="all"
+license="MIT"
+# Alpine's sway is compiled against a wlroots that has the GLES and Vulkan
+# renderers enabled, and those link libEGL unconditionally -- which drags in
+# mesa and llvm-libs, 245 MB, whether or not anything ever renders with them.
+# The two cannot coexist: they own the same paths.
+depends="!sway"
+subpackages="$pkgname-doc $pkgname-bash-completion $pkgname-fish-completion
+	$pkgname-zsh-completion"
+makedepends="
+	cairo-dev
+	gdk-pixbuf-dev
+	hwdata-dev
+	json-c-dev
+	libdisplay-info-dev
+	libdrm-dev
+	libevdev-dev
+	libinput-dev
+	libxkbcommon-dev
+	meson
+	ninja
+	pango-dev
+	pcre2-dev
+	pixman-dev
+	pkgconf
+	scdoc
+	wayland-dev
+	wayland-protocols
+	"
+source="
+	sway-$pkgver.tar.gz::https://github.com/swaywm/sway/archive/refs/tags/$pkgver.tar.gz
+	wlroots-$_wlroots.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/releases/$_wlroots/downloads/wlroots-$_wlroots.tar.gz
+	"
+builddir="$srcdir/sway-$pkgver"
+options="!check"
+
+build() {
+	# wlroots' renderers/allocators/backends options list the *optional* ones;
+	# pixman and headless are always compiled in. So empty lists, not values --
+	# meson rejects -Dbackends=headless and -Dallocators=shm as invalid.
+	#
+	# Built static and installed into $srcdir, so nothing ships a
+	# libwlroots-0.20.so that would collide with Alpine's own.
+	cd "$srcdir/wlroots-$_wlroots"
+	meson setup output \
+		--default-library=static \
+		--prefix="$srcdir/wlr" \
+		--libdir="$srcdir/wlr/lib" \
+		--buildtype=release \
+		-Drenderers= \
+		-Dallocators= \
+		-Dbackends= \
+		-Dxwayland=disabled \
+		-Dsession=disabled \
+		-Dexamples=false
+	meson compile -C output
+	meson install -C output
+
+	cd "$builddir"
+	export PKG_CONFIG_PATH="$srcdir/wlr/lib/pkgconfig"
+	abuild-meson . output
+	meson compile -C output
+}
+
+package() {
+	cd "$builddir"
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+}
+sha512sums="
+797a99ce108df21ada805f1169260a7a75051449af533d7659ecd63954e80ffe76afe7b406bf71db2f6edf6cca467ea083f03c9e6fba396ef317b5f7a9c48663  sway-1.12.tar.gz
+634345e23d0b6c28cb501c0dd0ef9c50d529a92ae5c8455e99e876f3f37ee244ac19dd097f76416b2ae4fd7c3f02e39a92a9322cf5a0caf8da21c31cd900e508  wlroots-0.20.2.tar.gz
+"
