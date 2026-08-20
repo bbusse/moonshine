@@ -7,8 +7,8 @@
 #
 
 ARG APK_IMAGE=moonshine-apk:latest
-ARG ALPINE_TAG=3.22
-ARG MOONSHINE_VERSION
+ARG ALPINE_TAG=3.24
+ARG MOONSHINE_VERSION=v0-rc0
 ARG SWAY_PKGVER=1.12
 ARG SWAY_PKGREL=0
 
@@ -38,9 +38,8 @@ cat > /checksums.txt <<'SUMS'
 # sha256 of the sway-pixman apks published at
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with: make sway-checksums MOONSHINE_VERSION=<tag> SWAY_PKGVER=<x.y.z> SWAY_PKGREL=<n>
-#
-# Empty until the first moonshine release exists to pin checksums against -
-# building Containerfile.sway will fail with "no checksum pinned" until then.
+f4598a23e4e4e731d789cfd70c617cea3b544b33c966c2482c4745970dab08ef  sway-pixman-1.12-r0.aarch64-v0-rc0.apk
+891dbf3473f2cd1bad2aeee5f4e186e06d476227cbb55175ff8f2730020fdda0  sway-pixman-1.12-r0.x86_64-v0-rc0.apk
 SUMS
 SCRIPT
 
@@ -75,8 +74,11 @@ FROM ${APK_IMAGE}
 # uutils-coreutils is not optional here the way it is in the base image: sway
 # shells out (e.g. it calls uname during startup)
 COPY --from=swayfetch /packages/sway-pixman.apk /tmp/packages/sway-pixman.apk
-RUN apk add --no-cache uutils-coreutils /tmp/packages/sway-pixman.apk \
-    && rm -rf /tmp/packages
+# uutils first and on its own: package install scripts run under brush, which
+# has no coreutils, and on 3.24 libglycin's post-install calls cat. In a single
+# transaction apk may run that script before uutils is unpacked.
+RUN apk add --no-cache uutils-coreutils
+RUN apk add --no-cache /tmp/packages/sway-pixman.apk && rm -rf /tmp/packages
 
 # Config and smoke script inline; by this point uutils is installed, so there
 # is a mkdir and a chmod to call.

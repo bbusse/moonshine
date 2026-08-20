@@ -18,8 +18,8 @@
 # backslash-joined lines can contain comments without eating the rest of the
 # script.
 
-ARG ALPINE_TAG=3.22
-ARG ALPINE_BRANCH=v3.22
+ARG ALPINE_TAG=3.24
+ARG ALPINE_BRANCH=v3.24
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS bootstrap
 ARG ALPINE_BRANCH

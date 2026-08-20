@@ -11,7 +11,7 @@
 # COPY from, not a working userland. For that, use moonshine-base (which
 # carries brush too, unless built with WITH_BRUSH=0)
 
-ARG ALPINE_TAG=3.22
+ARG ALPINE_TAG=3.24
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS build
 ARG BRUSH_VERSION=0.4.0

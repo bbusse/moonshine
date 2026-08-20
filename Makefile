@@ -6,8 +6,8 @@ REMOTE ?= gh
 RELEASE_BRANCH ?= ci
 
 ENGINE      ?= podman
-ALPINE_TAG  ?= 3.22
-ALPINE_BRANCH ?= v3.22
+ALPINE_TAG  ?= 3.24
+ALPINE_BRANCH ?= v3.24
 BASE_IMAGE  ?= moonshine-base:brush
 BRUSH_IMAGE ?= moonshine-brush:latest
 APK_IMAGE   ?= moonshine-apk:latest
@@ -23,7 +23,11 @@ UTILS         ?= none
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists.
-MOONSHINE_VERSION ?=
+MOONSHINE_VERSION ?= v0-rc0
+
+# No release means no sway-pixman apk to fetch, so the sway image cannot be
+# built; skip its tests rather than failing the suite on a known-absent input.
+TEST_SKIP := $(if $(strip $(MOONSHINE_VERSION)),,-s ^test_sway)
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
 
@@ -53,7 +57,8 @@ brush: ## build the scratch+brush image (no libc at all)
 test: ## verify the images behave (builds them first if needed)
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
 	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) \
-	  bash_unit tests/test_smoke.sh
+	  MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
+	  bash_unit $(TEST_SKIP) tests/test_smoke.sh
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
