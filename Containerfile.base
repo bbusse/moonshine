@@ -57,11 +57,28 @@ RUN set -eu; \
 
 COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
 COPY brush/checksums.txt /checksums.txt
-COPY brush/fetch.sh /fetch.sh
 COPY base/shell.sh /shell.sh
 COPY brush/binsh.sh /binsh.sh
+# Two independent checks on the downloaded apk, answering different questions:
+# the sha256 pin says "the same artifact we pinned", which catches a re-cut
+# release under an existing tag; apk's signature check says "built by the key
+# we trust". Neither subsumes the other, so both run.
+#
+# No comments inside the RUN below: the parser joins continuation lines before
+# the shell sees them, so a '#' would comment out everything after it.
 RUN set -eu; \
-    BRUSH_VERSION="${BRUSH_VERSION}" BRUSH_PKGREL="${BRUSH_PKGREL}" /fetch.sh; \
+    ARCH="$(apk --print-arch)"; \
+    ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"; \
+    echo "fetching $ASSET"; \
+    wget -q -O /brush.apk \
+        "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"; \
+    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
+    if [ -z "$expected" ]; then \
+        echo "no checksum pinned for $ASSET -- add one to brush/checksums.txt" >&2; \
+        exit 1; \
+    fi; \
+    echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null; \
+    echo "checksum ok"; \
     install -D -m 0644 /etc/apk/keys/apk-releases.rsa.pub \
         "$ROOT/etc/apk/keys/apk-releases.rsa.pub"; \
     apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /brush.apk; \

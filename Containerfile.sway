@@ -17,9 +17,28 @@ ARG SWAY_PKGVER
 ARG SWAY_PKGREL
 COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
 COPY sway-pixman/checksums.txt /checksums.txt
-COPY sway-pixman/fetch.sh /fetch.sh
+# Same two checks as Containerfile.base: a sha256 pin plus apk's own signature
+# verification. Unlike brush, sway-pixman is built and released by this repo's
+# own CI, so the asset name carries both its pkgver/pkgrel and the moonshine
+# release it was published under.
+#
+# No comments inside the RUN: continuation lines are joined before the shell
+# sees them, so a '#' would comment out the rest.
 RUN set -eu; \
-    MOONSHINE_VERSION="${MOONSHINE_VERSION}" SWAY_PKGVER="${SWAY_PKGVER}" SWAY_PKGREL="${SWAY_PKGREL}" /fetch.sh; \
+    : "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"; \
+    : "${SWAY_PKGVER:?set SWAY_PKGVER to the sway-pixman pkgver}"; \
+    ARCH="$(apk --print-arch)"; \
+    ASSET="sway-pixman-${SWAY_PKGVER}-r${SWAY_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"; \
+    echo "fetching $ASSET"; \
+    wget -q -O /sway-pixman.apk \
+        "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"; \
+    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
+    if [ -z "$expected" ]; then \
+        echo "no checksum pinned for $ASSET -- add one to sway-pixman/checksums.txt" >&2; \
+        exit 1; \
+    fi; \
+    echo "${expected}  /sway-pixman.apk" | sha256sum -c - >/dev/null; \
+    echo "checksum ok"; \
     mkdir -p /packages && mv /sway-pixman.apk /packages/sway-pixman.apk
 
 FROM ${APK_IMAGE}

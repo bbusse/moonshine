@@ -17,9 +17,20 @@ ARG BRUSH_VERSION=0.4.0
 ARG BRUSH_PKGREL=0
 COPY brush/keys/apk-releases.rsa.pub /etc/apk/keys/apk-releases.rsa.pub
 COPY brush/checksums.txt /checksums.txt
-COPY brush/fetch.sh /fetch.sh
+# sha256 pin plus apk's own signature check -- see Containerfile.base. No
+# comments inside the RUN: continuation lines are joined before the shell runs.
 RUN set -eu; \
-    BRUSH_VERSION="${BRUSH_VERSION}" BRUSH_PKGREL="${BRUSH_PKGREL}" /fetch.sh; \
+    ARCH="$(apk --print-arch)"; \
+    ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"; \
+    echo "fetching $ASSET"; \
+    wget -q -O /brush.apk \
+        "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"; \
+    expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"; \
+    if [ -z "$expected" ]; then \
+        echo "no checksum pinned for $ASSET -- add one to brush/checksums.txt" >&2; \
+        exit 1; \
+    fi; \
+    echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null; \
     apk add --no-cache --initdb --root /out --keys-dir /etc/apk/keys /brush.apk; \
     ! ldd /out/usr/bin/brush 2>/dev/null | grep -q '=>'; \
     mkdir -p /empty/tmp; chmod 1777 /empty/tmp
