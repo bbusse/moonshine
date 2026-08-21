@@ -1,0 +1,194 @@
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Build and push container images
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+    tags:
+      - 'rc-*'
+      - 'release-*'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      stage1_url:
+        description: >-
+          URL of a Gentoo stage1 tarball to seed Containerfile.catalyst.
+          Required for the catalyst job; Gentoo publishes no stage1
+          autobuilds, so there is no sensible default to fall back to.
+        required: false
+        default: ''
+
+jobs:
+  container-build-push-base:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yaml@dev
+    with:
+      image_name: 'moonshine-base'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.base
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+
+  # Same recipe as the base image, built again with apk on board. Needs the
+  # build_args input on container-build-push.yaml.
+  container-build-push-apk:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yaml@dev
+    with:
+      image_name: 'moonshine-apk'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.base
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      build_args: |
+        WITH_APK=1
+
+  # Built on top of the apk image, so it has to wait for that one to be pushed
+  # and then pull it by its registry name rather than the local tag.
+  container-build-push-sway:
+    needs: container-build-push-apk
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yaml@dev
+    with:
+      image_name: 'moonshine-sway'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.sway
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      build_args: |
+        APK_IMAGE=ghcr.io/bbusse/moonshine-apk:latest
+
+  container-build-push-brush:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yaml@dev
+    with:
+      image_name: 'moonshine-brush'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.brush
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+  # Gentoo, in two halves. Both dispatch-only: `catalyst -f` runs
+  # emerge --emptytree @system, recompiling the whole system set from source --
+  # hours against GitHub's 6-hour ceiling, in a workflow that otherwise
+  # finishes in two minutes.
+  #
+  # The split earns its keep here: the catalyst image is tens of minutes and
+  # changes rarely, so a failed stage3 attempt no longer costs a re-emerge of
+  # Catalyst and its perl dependency mess.
+  #
+  # One native job per arch, never QEMU -- emerging @system under emulation
+  # does not finish in any survivable time.
+  catalyst:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Log in to ghcr
+        run: podman login ghcr.io -u '${{ github.actor }}' -p '${{ secrets.GITHUB_TOKEN }}'
+      - name: Build the Catalyst builder image
+        env:
+          STAGE1_URL: ${{ github.event.inputs.stage1_url }}
+        run: |
+          set -eu
+          # With no seed given, Containerfile.catalyst downloads the current
+          # official stage3 for this arch from Gentoo mirrors itself.
+          args=""
+          if [ -n "$STAGE1_URL" ]; then
+            curl -fsSL -o "seed-${{ matrix.arch }}.tar.xz" "$STAGE1_URL"
+            args="--build-arg STAGE1=seed-${{ matrix.arch }}.tar.xz"
+          fi
+          podman build \
+            --build-arg SUBARCH=${{ matrix.arch }} \
+            --build-arg JOBS="$(nproc)" \
+            $args \
+            -f Containerfile.catalyst \
+            -t ghcr.io/bbusse/moonshine-catalyst:${{ matrix.arch }} .
+      - name: Push
+        run: podman push ghcr.io/bbusse/moonshine-catalyst:${{ matrix.arch }}
+
+  # podman rather than docker/build-push-action: Catalyst bind-mounts /proc,
+  # /sys and /dev into its build chroot and so needs SYS_ADMIN and SYS_CHROOT.
+  # buildx has no --cap-add; granting it there means insecure entitlements and
+  # a custom builder, which is more moving parts than calling podman directly.
+  stage3:
+    if: github.event_name == 'workflow_dispatch'
+    needs: catalyst
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free up disk for the @system build
+        # An emptytree build needs far more room than a runner has spare; the
+        # preinstalled toolchains are the cheapest thing to give up.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          df -h /
+      - name: Log in to ghcr
+        run: podman login ghcr.io -u '${{ github.actor }}' -p '${{ secrets.GITHUB_TOKEN }}'
+      - name: Build the stage3
+        run: |
+          podman build \
+            --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+            --build-arg CATALYST_IMAGE=ghcr.io/bbusse/moonshine-catalyst:${{ matrix.arch }} \
+            --build-arg SUBARCH=${{ matrix.arch }} \
+            --build-arg JOBS="$(nproc)" \
+            -f Containerfile.stage3 \
+            -t ghcr.io/bbusse/moonshine-stage3:${{ matrix.arch }} .
+      - name: Push
+        run: podman push ghcr.io/bbusse/moonshine-stage3:${{ matrix.arch }}
+
+  # Both arch tags into one multi-arch :latest, for each image.
+  manifests:
+    if: github.event_name == 'workflow_dispatch'
+    needs: stage3
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Log in to ghcr
+        run: podman login ghcr.io -u '${{ github.actor }}' -p '${{ secrets.GITHUB_TOKEN }}'
+      - name: Create and push the manifests
+        run: |
+          set -eu
+          for img in moonshine-catalyst moonshine-stage3; do
+            podman manifest create "ghcr.io/bbusse/$img:latest"
+            for a in amd64 arm64; do
+              podman manifest add "ghcr.io/bbusse/$img:latest" \
+                "docker://ghcr.io/bbusse/$img:$a"
+            done
+            podman manifest push --all "ghcr.io/bbusse/$img:latest" \
+              "docker://ghcr.io/bbusse/$img:latest"
+          done
