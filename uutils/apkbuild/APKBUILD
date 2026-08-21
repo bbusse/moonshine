@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=uutils
 pkgver=0.10.0
-pkgrel=0
+pkgrel=1
 pkgdesc="uutils coreutils, built as one multicall binary with only the utilities moonshine needs"
 url="https://github.com/uutils/coreutils"
 arch="all"
@@ -26,6 +26,10 @@ options="!check"
 # why upstream keeps feat_require_unix_musl separate from feat_require_unix.
 # Names come from the [features] table in the upstream Cargo.toml, where each
 # utility is an optional dependency of the same name.
+#
+# uptime reports "0 users" here and always will: musl implements the utmpx
+# functions as stubs, so there is no login database to count. The uptime and
+# load-average figures come from /proc and are correct.
 _utils="
 	cat
 	chmod
@@ -44,6 +48,7 @@ _utils="
 	tail
 	touch
 	uname
+	uptime
 	wc
 	"
 
