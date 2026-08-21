@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=uutils
 pkgver=0.10.0
-pkgrel=1
+pkgrel=3
 pkgdesc="uutils coreutils, built as one multicall binary with only the utilities moonshine needs"
 url="https://github.com/uutils/coreutils"
 arch="all"
@@ -35,6 +35,8 @@ _utils="
 	chmod
 	chown
 	cp
+	date
+	env
 	head
 	ln
 	ls
