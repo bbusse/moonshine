@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
-# SPDX-License-Identifier: BSD-3-Clause
-#
 # bash_unit smoke tests for the moonshine images. Run with:
 #   bash_unit tests/test_smoke.sh
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
 #
 # The images have no busybox, so filesystem assertions cannot be made by
 # running tools inside them -- there are no tools. Instead each image is
@@ -157,6 +157,59 @@ test_no_external_commands_by_default() {
     $ENGINE run --rm "$BASE_IMAGE" /bin/sh -c 'ls /' >/dev/null 2>&1 \
         && fail "expected no external commands, but ls succeeded"
     return 0
+}
+# The two tests below read the Containerfiles rather than the images. The
+# signing key and the checksum pins are inlined in more than one of them, which
+# is what keeps each file buildable from a checkout of itself alone -- the cost
+# of that property is copies, and copies drift.
+_repo_root() { (cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd); }
+
+test_signing_key_is_the_same_in_every_containerfile() {
+    local root base brush sway
+    root="$(_repo_root)"
+    _key() { awk '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/' "$root/$1"; }
+    base="$(_key Containerfile.base)"
+    brush="$(_key Containerfile.brush)"
+    sway="$(_key Containerfile.sway)"
+    # Without this, three empty strings would compare equal and assert nothing.
+    [ -n "$base" ] || fail "no apk-releases key found in Containerfile.base"
+    [ "$base" = "$brush" ] || fail "apk-releases key differs: Containerfile.base vs Containerfile.brush"
+    [ "$base" = "$sway" ]  || fail "apk-releases key differs: Containerfile.base vs Containerfile.sway"
+}
+
+test_shared_checksum_pins_agree() {
+    # brush is pinned in base and brush; uutils in base and sway. The Makefile
+    # prints the lines but pasting them into both files is manual, so a
+    # half-finished update is the likely failure.
+    local root
+    root="$(_repo_root)"
+    _pins() { grep -E "^[a-f0-9]{64}  .*$2" "$root/$1" | sort; }
+    [ -n "$(_pins Containerfile.base brush)" ] || fail "no brush pins in Containerfile.base"
+    [ "$(_pins Containerfile.base brush)" = "$(_pins Containerfile.brush brush)" ] \
+        || fail "brush pins differ between Containerfile.base and Containerfile.brush"
+    [ -n "$(_pins Containerfile.base uutils)" ] || fail "no uutils pins in Containerfile.base"
+    [ "$(_pins Containerfile.base uutils)" = "$(_pins Containerfile.sway uutils)" ] \
+        || fail "uutils pins differ between Containerfile.base and Containerfile.sway"
+}
+
+test_os_release_identifies_moonshine() {
+    # os-release(5) wants the canonical file in /usr/lib with /etc/os-release a
+    # relative symlink to it -- assert the arrangement, not just the contents,
+    # since a plain file in /etc would read identically today and drift later.
+    base_fs 'test "$(readlink etc/os-release)" = ../usr/lib/os-release' \
+        || fail "/etc/os-release is not a relative symlink to ../usr/lib/os-release"
+    base_fs 'test -f usr/lib/os-release' || fail "/usr/lib/os-release missing"
+}
+test_os_release_is_sourceable_and_valid() {
+    # The file is defined as shell-sourceable, and ID/VERSION_ID are restricted
+    # to [a-z0-9._-]. Sourced in the image itself, using brush builtins only.
+    run_in "$BASE_IMAGE" /bin/sh -c '
+        . /etc/os-release
+        [ "$ID" = moonshine ] || exit 1
+        [ -n "$VERSION_ID" ] || exit 1
+        [ "$PRETTY_NAME" = "moonshine $VERSION_ID" ] || exit 1
+        case "$ID$VERSION_ID" in *[!a-z0-9._-]*) exit 1 ;; esac' \
+        || fail "os-release is not sourceable or has an out-of-spec ID/VERSION_ID"
 }
 test_uutils_ls_works() {
     [ "$UTILS" != none ] || return 0
