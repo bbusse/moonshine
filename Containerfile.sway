@@ -6,14 +6,18 @@
 
 ARG APK_IMAGE=moonshine-apk:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc0
+ARG MOONSHINE_VERSION=v0-rc1
 ARG SWAY_PKGVER=1.12
 ARG SWAY_PKGREL=0
+ARG UUTILS_PKGVER=0.10.0
+ARG UUTILS_PKGREL=0
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS swayfetch
 ARG MOONSHINE_VERSION
 ARG SWAY_PKGVER
 ARG SWAY_PKGREL
+ARG UUTILS_PKGVER
+ARG UUTILS_PKGREL
 RUN <<'SCRIPT'
 set -eu
 cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
@@ -36,8 +40,10 @@ cat > /checksums.txt <<'SUMS'
 # sha256 of the sway-pixman apks published at
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with: make sway-checksums MOONSHINE_VERSION=<tag> SWAY_PKGVER=<x.y.z> SWAY_PKGREL=<n>
-f4598a23e4e4e731d789cfd70c617cea3b544b33c966c2482c4745970dab08ef  sway-pixman-1.12-r0.aarch64-v0-rc0.apk
-891dbf3473f2cd1bad2aeee5f4e186e06d476227cbb55175ff8f2730020fdda0  sway-pixman-1.12-r0.x86_64-v0-rc0.apk
+4663001a0811c88fe86bd7060997c6a2000eb730ec1171f6cfdb8c3f02420d6e  sway-pixman-1.12-r0.aarch64-v0-rc1.apk
+6f7bef71f34f44ab31c9c655aca5b4ec0ef776cab9bd36d9e96aae84e55124fd  sway-pixman-1.12-r0.x86_64-v0-rc1.apk
+0a9ec199bf99877e006b8b30ee990e615fbc77c445d5db45ac489fa6f804cb8b  uutils-0.10.0-r0.aarch64-v0-rc1.apk
+111a0d05894c157b9a5290e9c977f335e72248c29fcb0b8ed6db29ed8057e646  uutils-0.10.0-r0.x86_64-v0-rc1.apk
 SUMS
 SCRIPT
 
@@ -65,17 +71,30 @@ echo "checksum ok"
 
 mkdir -p /packages
 mv /sway-pixman.apk /packages/sway-pixman.apk
+
+ASSET="uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
+echo "fetching $ASSET"
+wget -q -O /uutils.apk \
+    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
+expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $ASSET" >&2
+    exit 1
+fi
+echo "${expected}  /uutils.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+mv /uutils.apk /packages/uutils.apk
 SCRIPT
 
 FROM ${APK_IMAGE}
 
 # uutils-coreutils is not optional here the way it is in the base image: sway
 # shells out (e.g. it calls uname during startup)
-COPY --from=swayfetch /packages/sway-pixman.apk /tmp/packages/sway-pixman.apk
+COPY --from=swayfetch /packages/ /tmp/packages/
 # uutils first and on its own: package install scripts run under brush, which
 # has no coreutils, and on 3.24 libglycin's post-install calls cat. In a single
 # transaction apk may run that script before uutils is unpacked.
-RUN apk add --no-cache uutils-coreutils
+RUN apk add --no-cache /tmp/packages/uutils.apk
 RUN apk add --no-cache /tmp/packages/sway-pixman.apk && rm -rf /tmp/packages
 
 # Config and smoke script inline; by this point uutils is installed, so there
@@ -90,12 +109,12 @@ cat > /etc/sway/config <<'CFG'
 ###
 ### Deliberately binds nothing to programs the image does not ship. There is no
 ### terminal, no launcher and no bar here; add packages and drop your own
-### snippets into /etc/sway/config.d/ instead of editing this file.
+### snippets into /etc/sway/config.d/ instead of editing this file
 
 set $mod Mod4
 
 # The headless backend comes up with no outputs, so clients have nowhere to
-# map. WLR_HEADLESS_OUTPUTS creates one; this sets its mode.
+# map. WLR_HEADLESS_OUTPUTS creates one; this sets its mode
 output HEADLESS-1 resolution 1280x800
 
 bindsym $mod+Shift+e exit
@@ -110,7 +129,7 @@ set -eu
 /usr/bin/sway >/tmp/sway.log 2>&1 &
 
 # `set -e` and `cmd && cmd` do not mix: a false test as the last command in a
-# loop body kills the script, so every check here is an explicit if.
+# loop body kills the script, so every check here is an explicit if
 SWAYSOCK=""
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     for s in "$XDG_RUNTIME_DIR"/sway-ipc.*; do
@@ -150,7 +169,7 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
     XDG_SESSION_TYPE=wayland
 
 LABEL org.opencontainers.image.title="moonshine-sway" \
-      org.opencontainers.image.description="sway, software rendering only, on a busybox-free musl image" \
+      org.opencontainers.image.description="" \
       org.opencontainers.image.licenses="BSD-3-Clause" \
       org.opencontainers.image.source="https://github.com/bbusse/moonshine"
 

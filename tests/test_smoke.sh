@@ -182,7 +182,10 @@ test_uutils_holds_only_the_selected_utils() {
     # stopped applying.
     base_fs 'test ! -e usr/bin/factor && test ! -e usr/bin/base32' \
         || fail "utilities outside _utils are present -- feature selection is not being applied"
-    run_in "$BASE_IMAGE" /bin/sh -c '/usr/bin/coreutils --list | grep -qx ls' \
+    # No grep in here -- that is the whole point of the image. Word-splitting
+    # the --list output on IFS and comparing with test is brush-builtin only.
+    run_in "$BASE_IMAGE" /bin/sh -c \
+        'for u in $(/usr/bin/coreutils --list); do [ "$u" = ls ] && exit 0; done; exit 1' \
         || fail "coreutils --list does not report ls"
 }
 

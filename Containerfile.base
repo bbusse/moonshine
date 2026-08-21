@@ -29,8 +29,8 @@ ARG UTILS=none
 
 # Which moonshine release to take uutils from, and the pkgver/pkgrel it was
 # published under (from uutils/apkbuild/APKBUILD). Only read when
-# UTILS=uutils.
-ARG MOONSHINE_VERSION=v0-rc0
+# UTILS=uutils
+ARG MOONSHINE_VERSION=v0-rc1
 ARG UUTILS_PKGVER=0.10.0
 ARG UUTILS_PKGREL=0
 
@@ -43,7 +43,7 @@ ENV ROOT=/rootfs
 # alpine-baselayout carries a file dependency on /bin/sh, which only
 # busybox-binsh provides, so requiring it drags busybox back in. We take
 # alpine-baselayout-data (the /etc files, no dependencies) and build the
-# directory tree ourselves below.
+# directory tree ourselves below
 RUN <<'SCRIPT'
 set -eu
 pkgs="musl"                        # the libc and /lib/ld-musl-$ARCH.so.1 loader
@@ -55,7 +55,11 @@ pkgs="$pkgs tzdata"                 # without this, local time silently yields U
 # down, the same way brush and sway-pixman are. Validated here so a typo fails
 # before anything is downloaded.
 case "$UTILS" in
-    none|uutils) ;;
+    none) ;;
+    # Rust binaries link libgcc_s for stack unwinding, so the rootfs needs it
+    # before the uutils apk will resolve. Alpine's uutils-coreutils depends on
+    # it for the same reason. Only pulled in with uutils
+    uutils) pkgs="$pkgs libgcc" ;;
     *) echo "unknown UTILS=$UTILS (want: none, uutils)" >&2; exit 1 ;;
 esac
 
@@ -91,12 +95,12 @@ chmod 0555 "$ROOT/var/empty"
 
 # These two are symlinks in a normal Alpine root. Test with -L, not -e:
 # both point at paths that do not exist in the build stage, so -e is false
-# even when the link is already there (alpine-baselayout-data ships /etc/mtab).
+# even when the link is already there (alpine-baselayout-data ships /etc/mtab)
 [ -L "$ROOT/var/run" ] || ln -s /run "$ROOT/var/run"
 [ -L "$ROOT/etc/mtab" ] || ln -s /proc/mounts "$ROOT/etc/mtab"
 SCRIPT
 
-# Repositories and cache, so apk works inside the image. Only when it is there.
+# Repositories and cache, so apk works inside the image
 RUN <<'SCRIPT'
 set -eu
 if [ "$WITH_APK" != "1" ]; then exit 0; fi
@@ -113,12 +117,12 @@ https://dl-cdn.alpinelinux.org/alpine/${BRANCH}/community
 REPOS
 
 # apk resolves this relative to its own root, so the cache has to be reachable
-# from inside the image rather than from the build stage.
+# from inside the image rather than from the build stage
 ln -sfn /var/cache/apk "$ROOT/etc/apk/cache"
 SCRIPT
 
 # The key the brush release is signed with. Inline so the build needs no
-# context; regenerate from bbusse/alpine-brush-build if it is ever rotated.
+# context; regenerate from bbusse/alpine-brush-build if it is ever rotated
 RUN <<'SCRIPT'
 set -eu
 cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
@@ -149,7 +153,7 @@ SCRIPT
 # Two independent checks on the downloaded apk, answering different questions:
 # the sha256 pin says "the same artifact we pinned", which catches a re-cut
 # release under an existing tag; apk's signature check says "built by the key
-# we trust". Neither subsumes the other, so both run.
+# we trust". Neither subsumes the other, so both run
 RUN <<'SCRIPT'
 set -eu
 ARCH="$(apk --print-arch)"
@@ -275,6 +279,8 @@ cat > /uutils-checksums.txt <<'SUMS'
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with:
 #   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
+0a9ec199bf99877e006b8b30ee990e615fbc77c445d5db45ac489fa6f804cb8b  uutils-0.10.0-r0.aarch64-v0-rc1.apk
+111a0d05894c157b9a5290e9c977f335e72248c29fcb0b8ed6db29ed8057e646  uutils-0.10.0-r0.x86_64-v0-rc1.apk
 SUMS
 
 ARCH="$(apk --print-arch)"

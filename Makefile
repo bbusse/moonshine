@@ -23,7 +23,7 @@ UTILS         ?= none
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists.
-MOONSHINE_VERSION ?= v0-rc0
+MOONSHINE_VERSION ?= v0-rc1
 
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
@@ -39,7 +39,7 @@ BRUSH_ARGS   = --build-arg BRUSH_VERSION=$(BRUSH_VERSION) --build-arg BRUSH_PKGR
 UUTILS_ARGS  = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(ALPINE_BRANCH) --build-arg UTILS=$(UTILS) $(BRUSH_ARGS) $(UUTILS_ARGS)
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
-SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL)
+SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 
 .PHONY: all base brush apk sway test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
