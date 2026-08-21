@@ -1,6 +1,4 @@
-# syntax=docker/dockerfile:1
-# moonshine sway -- a Wayland compositor on an apk image,
-# software rendering only
+# moonshine sway
 #
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
 # SPDX-License-Identifier: BSD-3-Clause

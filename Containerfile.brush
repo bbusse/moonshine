@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # moonshine brush image -- a shell, no libc
 #
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>

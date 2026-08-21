@@ -162,6 +162,29 @@ test_uutils_ls_works() {
     [ "$UTILS" != none ] || return 0
     run_in "$BASE_IMAGE" /bin/sh -c 'ls / >/dev/null' || fail "uutils ls did not work"
 }
+test_uutils_is_one_multicall_binary() {
+    [ "$UTILS" != none ] || return 0
+    # Every utility is a symlink to the single coreutils binary. Separate
+    # binaries would work identically at the prompt and cost a copy of the
+    # Rust runtime and uucore apiece, so assert on the arrangement, not just
+    # on the behaviour.
+    base_fs 'test "$(readlink usr/bin/ls)" = coreutils' \
+        || fail "usr/bin/ls is not a symlink to the coreutils multicall binary"
+    base_fs 'test -f usr/bin/coreutils && test -x usr/bin/coreutils' \
+        || fail "the coreutils multicall binary is missing"
+}
+test_uutils_holds_only_the_selected_utils() {
+    [ "$UTILS" != none ] || return 0
+    # The point of building it ourselves: --no-default-features drops
+    # feat_common_core, so utilities nobody asked for are absent rather than
+    # merely unused. factor and base32 are in upstream's default set and not
+    # in _utils, so their presence would mean the feature selection silently
+    # stopped applying.
+    base_fs 'test ! -e usr/bin/factor && test ! -e usr/bin/base32' \
+        || fail "utilities outside _utils are present -- feature selection is not being applied"
+    run_in "$BASE_IMAGE" /bin/sh -c '/usr/bin/coreutils --list | grep -qx ls' \
+        || fail "coreutils --list does not report ls"
+}
 
 test_apk_binary_present() {
     apk_fs 'test -x sbin/apk' || fail "apk binary missing"

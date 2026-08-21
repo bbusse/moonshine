@@ -1,22 +1,14 @@
-# syntax=docker/dockerfile:1
+# moonshine base image -- musl + brush, from scratch
+#
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# moonshine base image -- musl + brush, from scratch
 #
 # Stage 1 uses Alpine purely as a host for apk; nothing from it is inherited.
 # apk --root builds a fresh rootfs, brush is added from a signed apk, and
 # stage 2 copies that tree onto an empty image.
 #
-# There is no busybox and no other shell: /bin/sh is brush. See README for
-# what that costs (no ls, no cat, no grep -- brush builtins only, unless you
-# build with UTILS=uutils)
+# There is no busybox and no other shell: /bin/sh is brush
 #
-# Everything this build needs is inline: the Containerfile copies nothing from
-# the build context, so it works from a checkout of this file alone. The
-# parser directive above is what buys us RUN heredocs, which unlike
-# backslash-joined lines can contain comments without eating the rest of the
-# script.
 
 ARG ALPINE_TAG=3.24
 ARG ALPINE_BRANCH=v3.24
@@ -29,13 +21,20 @@ ARG ALPINE_BRANCH
 ARG BRUSH_VERSION=0.4.0
 ARG BRUSH_PKGREL=0
 
-# none  = brush builtins only
-# uutils = add uutils-coreutils, the Rust coreutils (~7 MB, dynamic against musl)
+# none   = brush builtins only
+# uutils = add uutils, this repo's cut-down build of the Rust coreutils --
+#          one multicall binary holding only the utilities listed in
+#          uutils/apkbuild/APKBUILD, not Alpine's ~100-utility package.
 ARG UTILS=none
 
-# Put apk itself in the image, so it can install packages at runtime rather
-# than only being assembled by one. Off by default: an image that cannot
-# change after it is built is the point of everything else here
+# Which moonshine release to take uutils from, and the pkgver/pkgrel it was
+# published under (from uutils/apkbuild/APKBUILD). Only read when
+# UTILS=uutils.
+ARG MOONSHINE_VERSION=v0-rc0
+ARG UUTILS_PKGVER=0.10.0
+ARG UUTILS_PKGREL=0
+
+# Put apk itself in the image
 ARG WITH_APK=0
 
 ENV ROOT=/rootfs
@@ -52,9 +51,11 @@ pkgs="$pkgs alpine-baselayout-data" # /etc/passwd, /etc/group, /etc/hosts, /etc/
 pkgs="$pkgs ca-certificates-bundle" # /etc/ssl/certs/ca-certificates.crt, for any TLS
 pkgs="$pkgs tzdata"                 # without this, local time silently yields UTC
 
+# uutils is not in this list: it is fetched from a moonshine release further
+# down, the same way brush and sway-pixman are. Validated here so a typo fails
+# before anything is downloaded.
 case "$UTILS" in
-    none) ;;
-    uutils) pkgs="$pkgs uutils-coreutils" ;;
+    none|uutils) ;;
     *) echo "unknown UTILS=$UTILS (want: none, uutils)" >&2; exit 1 ;;
 esac
 
@@ -256,6 +257,50 @@ printf '%s\n' "$BRUSH" /bin/sh /bin/brush > "$ROOT/etc/shells"
 # brush; say so explicitly so the intent survives someone editing passwd.
 sed -i "s#^root:x:0:0:root:/root:/bin/sh\$#root:x:0:0:root:/root:${BRUSH}#" \
     "$ROOT/etc/passwd"
+SCRIPT
+
+# uutils, when asked for. Same two checks as brush above: a sha256 pin and
+# apk's signature verification, against the same apk-releases key -- this
+# package is built and signed by this repo's own CI (see
+# .github/workflows/build-apk.yml), so the asset name carries both its
+# pkgver/pkgrel and the moonshine release it was published under.
+RUN <<'SCRIPT'
+set -eu
+if [ "$UTILS" != uutils ]; then exit 0; fi
+ROOT="${ROOT:?}"
+: "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release uutils was published under}"
+
+cat > /uutils-checksums.txt <<'SUMS'
+# sha256 of the uutils apks published at
+# https://github.com/bbusse/moonshine/releases
+# Regenerate with:
+#   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
+SUMS
+
+ARCH="$(apk --print-arch)"
+ASSET="uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
+
+expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /uutils-checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $ASSET" >&2
+    echo "uutils has to be in a published release before UTILS=uutils can" >&2
+    echo "build; tag one, then: make uutils-checksums MOONSHINE_VERSION=<tag>" >&2
+    exit 1
+fi
+
+echo "fetching $ASSET"
+wget -q -O /uutils.apk \
+    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
+echo "${expected}  /uutils.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+
+apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /uutils.apk
+rm -f /uutils.apk
+
+# The multicall binary is only useful through its symlinks; if package() ever
+# stops making them, every utility silently disappears from PATH.
+[ "$(readlink "$ROOT/usr/bin/ls")" = coreutils ] \
+    || { echo "uutils installed but /usr/bin/ls is not a coreutils symlink" >&2; exit 1; }
 SCRIPT
 
 RUN <<'SCRIPT'

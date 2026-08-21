@@ -28,12 +28,20 @@ MOONSHINE_VERSION ?= v0-rc0
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
 
+# uutils, from uutils/apkbuild/APKBUILD. Which utilities it contains is
+# set by _utils in that file, not here.
+UUTILS_PKGVER ?= 0.10.0
+UUTILS_PKGREL ?= 0
+
+RELEASE_URL   ?= https://github.com/bbusse/moonshine/releases/download
+
 BRUSH_ARGS   = --build-arg BRUSH_VERSION=$(BRUSH_VERSION) --build-arg BRUSH_PKGREL=$(BRUSH_PKGREL)
-BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(ALPINE_BRANCH) --build-arg UTILS=$(UTILS) $(BRUSH_ARGS)
+UUTILS_ARGS  = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
+BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(ALPINE_BRANCH) --build-arg UTILS=$(UTILS) $(BRUSH_ARGS) $(UUTILS_ARGS)
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL)
 
-.PHONY: all base brush apk sway test sizes lock shell brush-shell brush-checksums sway-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk sway test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
 all: base apk brush sway ## build every image
 
@@ -75,11 +83,34 @@ sway-run: sway ## start sway headless and report what it brought up
 brush-shell: brush ## interactive brush in the libc-free image
 	$(ENGINE) run --rm -it $(BRUSH_IMAGE)
 
+# $(call sums,<url base>,<asset>...) -- print sha256 lines for the SUMS
+# heredocs in the Containerfiles. Downloads to a file and checks curl before
+# hashing: piping curl straight into a digest prints the hash of empty input on
+# a 404 (e3b0c442...), which looks exactly like a valid pin. openssl rather
+# than sha256sum because stock macOS has no sha256sum.
+define sums
+@t=$$(mktemp -d); trap 'rm -rf "$$t"' EXIT; \
+for a in $(2); do \
+    curl -fsSL -o "$$t/$$a" "$(1)/$$a" \
+      || { echo "could not fetch $(1)/$$a" >&2; exit 1; }; \
+    printf '%s  %s\n' "$$(openssl dgst -sha256 -r "$$t/$$a" | cut -d' ' -f1)" "$$a"; \
+done
+endef
+
 brush-checksums: ## re-pin brush apk checksums for BRUSH_VERSION
-	./brush/checksums.sh $(BRUSH_VERSION) $(BRUSH_PKGREL)
+	$(call sums,https://github.com/bbusse/alpine-brush-build/releases/download/v$(BRUSH_VERSION),\
+	  aarch64-brush-$(BRUSH_VERSION)-r$(BRUSH_PKGREL).apk \
+	  x86_64-brush-$(BRUSH_VERSION)-r$(BRUSH_PKGREL).apk)
 
 sway-checksums: ## re-pin sway-pixman apk checksums for MOONSHINE_VERSION/SWAY_PKGVER
-	./sway-pixman/checksums.sh $(MOONSHINE_VERSION) $(SWAY_PKGVER) $(SWAY_PKGREL)
+	$(call sums,$(RELEASE_URL)/$(MOONSHINE_VERSION),\
+	  sway-pixman-$(SWAY_PKGVER)-r$(SWAY_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
+	  sway-pixman-$(SWAY_PKGVER)-r$(SWAY_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
+
+uutils-checksums: ## re-pin uutils apk checksums for MOONSHINE_VERSION/UUTILS_PKGVER
+	$(call sums,$(RELEASE_URL)/$(MOONSHINE_VERSION),\
+	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
+	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
 clean: ## remove built images
 	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) 2>/dev/null

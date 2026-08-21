@@ -1,0 +1,80 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=uutils
+pkgver=0.10.0
+pkgrel=0
+pkgdesc="uutils coreutils, built as one multicall binary with only the utilities moonshine needs"
+url="https://github.com/uutils/coreutils"
+arch="all"
+license="MIT"
+# Alpine's uutils-coreutils compiles in every utility (~100) and owns the same
+# paths in /usr/bin. Ours is the same upstream, cut down to _utils below.
+depends="!uutils-coreutils"
+makedepends="cargo"
+source="uutils-coreutils-$pkgver.tar.gz::https://github.com/uutils/coreutils/archive/refs/tags/$pkgver.tar.gz"
+builddir="$srcdir/coreutils-$pkgver"
+# The test suite wants GNU's, plus a checkout of it; nothing here is validated
+# by running it. !tracedeps is deliberately NOT set: the so-deps apk records
+# are what turn a libc mismatch into a resolution error instead of a crash.
+options="!check"
+
+# The utilities compiled into the binary. One per line, alphabetical -- adding
+# one is a single-line diff, then a pkgrel bump and a rebuild.
+#
+# Anything in uutils' feat_os_unix_musl set is safe to add. `stdbuf` is the one
+# that is not: it needs a cdylib, which musl targets do not support, which is
+# why upstream keeps feat_require_unix_musl separate from feat_require_unix.
+# Names come from the [features] table in the upstream Cargo.toml, where each
+# utility is an optional dependency of the same name.
+_utils="
+	cat
+	chmod
+	chown
+	cp
+	head
+	ln
+	ls
+	mkdir
+	mktemp
+	mv
+	rm
+	rmdir
+	sleep
+	stat
+	tail
+	touch
+	uname
+	wc
+	"
+
+prepare() {
+	default_prepare
+	cargo fetch --target="$CTARGET" --locked
+}
+
+build() {
+	# -p coreutils, not a bare `cargo build`: the workspace lists src/uu/* as
+	# members, so building the workspace compiles every utility crate whatever
+	# --features says. Only the root package honours the feature selection.
+	#
+	# --no-default-features drops feat_common_core, which is 78 utilities.
+	cargo build -p coreutils --release --frozen \
+		--no-default-features --features "$(echo $_utils)"
+}
+
+package() {
+	install -Dm755 "$builddir"/target/release/coreutils \
+		"$pkgdir"/usr/bin/coreutils
+
+	# One binary plus a symlink per utility, the busybox arrangement: separate
+	# binaries would repeat the Rust runtime and uucore in every one of them.
+	# The list comes from the binary itself rather than from $_utils, so the
+	# links cannot drift from what was actually compiled in.
+	"$builddir"/target/release/coreutils --list | while read -r _u; do
+		[ -n "$_u" ] || continue
+		ln -s coreutils "$pkgdir"/usr/bin/"$_u"
+	done
+}
+sha512sums="
+cd5bc2b491ad36e559678aa45578c1646d48f4421abb1944195282acea4e5c6c1f9556c3fd2758cc7e37a1995fd5e2e1b94dfb91b6826f4e4c9bf8ddb7e50fd8  uutils-coreutils-0.10.0.tar.gz
+"
