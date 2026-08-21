@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Build Alpine Package
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+    tags:
+      - 'rc-*'
+      - 'release-*'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - '**'
+  workflow_dispatch:
+
+# Both packages upload under a shared `moonshine-` artifact prefix, because the
+# release job takes one artifact_name and downloads `<artifact_name>-*` with
+# merge-multiple. That collects all four uploads (two packages x two arches)
+# into a single release. Splitting them into two release jobs would not work:
+# each computes its own version from the VERSION file and commits it back, so
+# the second would bump past the first and publish a second, near-empty release.
+#
+# The released asset names are unaffected -- those come from the apk filenames,
+# which abuild takes from each APKBUILD's pkgname.
+jobs:
+  build-sway-pixman:
+    uses: bbusse/github-workflows/.github/workflows/build-apk.yml@dev
+    with:
+      artifact_name: moonshine-sway-pixman
+      build_from_source: true
+      working_directory: sway-pixman/apkbuild
+      key_name: apk-releases
+    secrets: inherit
+
+  build-uutils:
+    uses: bbusse/github-workflows/.github/workflows/build-apk.yml@dev
+    with:
+      artifact_name: moonshine-uutils
+      build_from_source: true
+      working_directory: uutils/apkbuild
+      key_name: apk-releases
+    secrets: inherit
+
+  release:
+    needs:
+      - build-sway-pixman
+      - build-uutils
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    uses: bbusse/github-workflows/.github/workflows/release.yml@dev
+    with:
+      artifact_name: moonshine
+      binary_name: moonshine
+      release_branch: ci
+      version_branch: dev
+    secrets: inherit
