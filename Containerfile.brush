@@ -65,6 +65,11 @@ apk add --no-cache --initdb --root /out --keys-dir /etc/apk/keys /brush.apk
 
 # The whole premise of this image: if brush ever ships dynamically linked,
 # fail here rather than at run time, where the error names the wrong thing.
+#
+# The existence check is not redundant: ldd on a missing file also fails, so
+# the negated grep below would pass on one just as happily as on a static
+# binary -- asserting nothing at all.
+[ -f /out/usr/bin/brush ] || { echo "brush apk did not install /usr/bin/brush" >&2; exit 1; }
 ! ldd /out/usr/bin/brush 2>/dev/null | grep -q '=>'
 
 mkdir -p /empty/tmp

@@ -48,48 +48,41 @@ SUMS
 SCRIPT
 
 # Same two checks as Containerfile.base: a sha256 pin plus apk's own signature
-# verification. Unlike brush, sway-pixman is built and released by this repo's
-# own CI, so the asset name carries both its pkgver/pkgrel and the moonshine
-# release it was published under.
+# verification. Both packages are built and released by this repo's own CI, so
+# each asset name carries its pkgver/pkgrel and the moonshine release it was
+# published under.
 RUN <<'SCRIPT'
 set -eu
 : "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"
 : "${SWAY_PKGVER:?set SWAY_PKGVER to the sway-pixman pkgver}"
-ARCH="$(apk --print-arch)"
-ASSET="sway-pixman-${SWAY_PKGVER}-r${SWAY_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
-echo "fetching $ASSET"
-wget -q -O /sway-pixman.apk \
-    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
 
-expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
-if [ -z "$expected" ]; then
-    echo "no checksum pinned for $ASSET" >&2
-    exit 1
-fi
-echo "${expected}  /sway-pixman.apk" | sha256sum -c - >/dev/null
-echo "checksum ok"
+RELEASE="https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}"
+ARCH="$(apk --print-arch)"
+
+# One fetch-and-verify path for both packages: this is the code that decides
+# whether an unverified apk gets installed, so it exists once.
+fetch_apk() {
+    asset="$1"
+    expected="$(awk -v a="$asset" '$2 == a { print $1 }' /checksums.txt)"
+    if [ -z "$expected" ]; then
+        echo "no checksum pinned for $asset" >&2
+        exit 1
+    fi
+    echo "fetching $asset"
+    wget -q -O "/packages/$2" "${RELEASE}/${asset}"
+    echo "${expected}  /packages/$2" | sha256sum -c - >/dev/null
+    echo "checksum ok"
+}
 
 mkdir -p /packages
-mv /sway-pixman.apk /packages/sway-pixman.apk
-
-ASSET="uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
-echo "fetching $ASSET"
-wget -q -O /uutils.apk \
-    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
-expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
-if [ -z "$expected" ]; then
-    echo "no checksum pinned for $ASSET" >&2
-    exit 1
-fi
-echo "${expected}  /uutils.apk" | sha256sum -c - >/dev/null
-echo "checksum ok"
-mv /uutils.apk /packages/uutils.apk
+fetch_apk "sway-pixman-${SWAY_PKGVER}-r${SWAY_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" sway-pixman.apk
+fetch_apk "uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" uutils.apk
 SCRIPT
 
 FROM ${APK_IMAGE}
 
-# uutils-coreutils is not optional here the way it is in the base image: sway
-# shells out (e.g. it calls uname during startup)
+# uutils is not optional here the way it is in the base image: sway shells out
+# (it calls uname during startup), and sway-smoke needs sleep and cat.
 COPY --from=swayfetch /packages/ /tmp/packages/
 # uutils first and on its own: package install scripts run under brush, which
 # has no coreutils, and on 3.24 libglycin's post-install calls cat. In a single
