@@ -12,7 +12,17 @@ BASE_IMAGE  ?= moonshine-base:brush
 BRUSH_IMAGE ?= moonshine-brush:latest
 APK_IMAGE   ?= moonshine-apk:latest
 SWAY_IMAGE  ?= moonshine-sway:latest
+CATALYST_IMAGE ?= moonshine-catalyst:local
+STAGE3_IMAGE ?= moonshine-stage3:local
 PLATFORM    ?=
+
+STAGE1   ?=
+SUBARCH  ?= amd64
+VARIANT  ?= openrc
+# Empty: Containerfile.stage3 derives default/linux/$(SUBARCH)/23.0.
+# Set it for a non-default profile (hardened, musl, llvm).
+PROFILE  ?=
+JOBS     ?= 4
 
 PLATFORM_ARG = $(if $(PLATFORM),--platform $(PLATFORM),)
 BRUSH_VERSION ?= 0.4.0
@@ -41,7 +51,7 @@ BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 
-.PHONY: all base brush apk sway test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk sway catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
 all: base apk brush sway ## build every image
 
@@ -56,14 +66,31 @@ sway: apk ## build the sway image on top of the apk image
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg APK_IMAGE=$(APK_IMAGE) $(SWAY_ARGS) \
 	  -f Containerfile.sway -t $(SWAY_IMAGE) .
 
+catalyst: ## build the Catalyst builder image (seed + catalyst + portage snapshot)
+	$(ENGINE) build $(PLATFORM_ARG) \
+	  --build-arg STAGE1=$(STAGE1) \
+	  --build-arg SUBARCH=$(SUBARCH) \
+	  --build-arg VARIANT=$(VARIANT) \
+	  --build-arg JOBS=$(JOBS) \
+	  -f Containerfile.catalyst -t $(CATALYST_IMAGE) .
+
+stage3: catalyst ## build a Gentoo stage3 with the Catalyst image (hours, not minutes)
+	@printf 'catalyst -f runs emerge --emptytree @system. Expect hours.\n'
+	$(ENGINE) build $(PLATFORM_ARG) --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+	  --build-arg CATALYST_IMAGE=$(CATALYST_IMAGE) \
+	  --build-arg SUBARCH=$(SUBARCH) \
+	  --build-arg PROFILE=$(PROFILE) \
+	  --build-arg JOBS=$(JOBS) \
+	  -f Containerfile.stage3 -t $(STAGE3_IMAGE) .
+
 brush: ## build the scratch+brush image (no libc at all)
 	$(ENGINE) build $(PLATFORM_ARG) $(BRUSHIMG_ARGS) -f Containerfile.brush -t $(BRUSH_IMAGE) .
 
 test: ## verify the images behave (builds them first if needed)
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
 	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) \
-	  MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
-	  bash_unit tests/test_smoke.sh
+	  STAGE3_IMAGE=$(STAGE3_IMAGE) MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
+	  bash_unit tests/tests.sh
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
@@ -113,7 +140,7 @@ uutils-checksums: ## re-pin uutils apk checksums for MOONSHINE_VERSION/UUTILS_PK
 	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
 clean: ## remove built images
-	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) 2>/dev/null
+	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
 
 _check-remote:
 	@git remote get-url $(REMOTE) > /dev/null 2>&1 || \
@@ -147,4 +174,4 @@ release release-candidate rc: _check-up-to-date ## tag HEAD release-<hash>/rc-<h
 	    *) git tag -d $(TAG); echo 'Aborted — tag removed.' ;; esac
 
 help: ## list targets
-	@grep -hE '^[a-z][a-z -]*:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | expand -t20
+	@grep -hE '^[a-z][a-z0-9 -]*:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | expand -t20
