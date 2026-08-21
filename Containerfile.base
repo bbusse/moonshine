@@ -100,13 +100,40 @@ chmod 0555 "$ROOT/var/empty"
 [ -L "$ROOT/etc/mtab" ] || ln -s /proc/mounts "$ROOT/etc/mtab"
 SCRIPT
 
+# Identify the image as moonshine rather than as the Alpine it was assembled
+# from. /etc/os-release belongs to alpine-release, which this rootfs does not
+# install, so there is nothing here to overwrite and no apk-owned file to
+# diverge from.
+#
+# os-release(5): the canonical copy lives at /usr/lib/os-release with
+# /etc/os-release a relative symlink to it, which is how Alpine ships it too.
+# VERSION_ID drops the leading "v" of the release tag -- the spec asks for the
+# version alone, and Alpine does the same (VERSION_ID=3.24.1, branch v3.24).
+RUN <<'SCRIPT'
+set -eu
+ROOT="${ROOT:?}"
+VERSION_ID="${MOONSHINE_VERSION#v}"
+
+cat > "$ROOT/usr/lib/os-release" <<RELEASE
+NAME="moonshine"
+ID=moonshine
+ID_LIKE=alpine
+VERSION="${VERSION_ID}"
+VERSION_ID="${VERSION_ID}"
+PRETTY_NAME="moonshine ${VERSION_ID}"
+HOME_URL="https://github.com/bbusse/moonshine"
+BUG_REPORT_URL="https://github.com/bbusse/moonshine/issues"
+RELEASE
+
+ln -sfn ../usr/lib/os-release "$ROOT/etc/os-release"
+SCRIPT
+
 # Repositories and cache, so apk works inside the image
 RUN <<'SCRIPT'
 set -eu
 if [ "$WITH_APK" != "1" ]; then exit 0; fi
 BRANCH="${ALPINE_BRANCH:?}"
 ROOT="${ROOT:?}"
-BRANCH="${ALPINE_BRANCH:?}"
 
 [ -x "$ROOT/sbin/apk" ] || { echo "apk-tools not installed" >&2; exit 1; }
 
@@ -142,33 +169,49 @@ LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
 -----END PUBLIC KEY-----
 KEY
 cat > /checksums.txt <<'SUMS'
-# sha256 of the brush apks published at
-# https://github.com/bbusse/alpine-brush-build/releases
+# sha256 of the apks this image pulls in. Two independent checks run on each:
+# the pin says "the same artifact we pinned", which catches a re-cut release
+# under an existing tag; apk's signature check says "built by the key we
+# trust". Neither subsumes the other.
+#
+# brush, from https://github.com/bbusse/alpine-brush-build/releases
 # Regenerate with: make brush-checksums BRUSH_VERSION=x.y.z
 a610db78a6d3f0c757c0f1a70fe6d01db399939e01c226c8a6d18d22aeb4bc19  aarch64-brush-0.4.0-r0.apk
 98bdca3b87a5fbef6dcd875afd4dd6b307774b916175d1b75c56750ce7a68003  x86_64-brush-0.4.0-r0.apk
+#
+# uutils, from https://github.com/bbusse/moonshine/releases
+# Regenerate with:
+#   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
+0a9ec199bf99877e006b8b30ee990e615fbc77c445d5db45ac489fa6f804cb8b  uutils-0.10.0-r0.aarch64-v0-rc1.apk
+111a0d05894c157b9a5290e9c977f335e72248c29fcb0b8ed6db29ed8057e646  uutils-0.10.0-r0.x86_64-v0-rc1.apk
 SUMS
+
+# One fetch-and-verify path, used by both the brush and uutils steps below.
+# Having it in one place is the point: this is the code that decides whether an
+# unverified apk gets installed, and a second copy can drift from the first.
+cat > /usr/local/bin/fetch-apk <<'HELPER'
+#!/bin/sh
+# fetch-apk <url-base> <asset> <dest>
+set -eu
+url_base="$1"; asset="$2"; dest="$3"
+expected="$(awk -v a="$asset" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $asset" >&2
+    exit 1
+fi
+echo "fetching $asset"
+wget -q -O "$dest" "${url_base}/${asset}"
+echo "${expected}  ${dest}" | sha256sum -c - >/dev/null
+echo "checksum ok"
+HELPER
+chmod +x /usr/local/bin/fetch-apk
 SCRIPT
 
-# Two independent checks on the downloaded apk, answering different questions:
-# the sha256 pin says "the same artifact we pinned", which catches a re-cut
-# release under an existing tag; apk's signature check says "built by the key
-# we trust". Neither subsumes the other, so both run
 RUN <<'SCRIPT'
 set -eu
 ARCH="$(apk --print-arch)"
-ASSET="${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk"
-echo "fetching $ASSET"
-wget -q -O /brush.apk \
-    "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}/${ASSET}"
-
-expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /checksums.txt)"
-if [ -z "$expected" ]; then
-    echo "no checksum pinned for $ASSET" >&2
-    exit 1
-fi
-echo "${expected}  /brush.apk" | sha256sum -c - >/dev/null
-echo "checksum ok"
+fetch-apk "https://github.com/bbusse/alpine-brush-build/releases/download/v${BRUSH_VERSION}" \
+    "${ARCH}-brush-${BRUSH_VERSION}-r${BRUSH_PKGREL}.apk" /brush.apk
 
 install -D -m 0644 /etc/apk/keys/apk-releases.rsa.pub \
     "$ROOT/etc/apk/keys/apk-releases.rsa.pub"
@@ -183,8 +226,6 @@ set -eu
 VERSION="${BRUSH_VERSION:?}"
 PKGREL="${BRUSH_PKGREL:-0}"
 ROOT="${ROOT:?}"
-VERSION="${BRUSH_VERSION:?}"
-PKGREL="${BRUSH_PKGREL:-0}"
 # abuild runs as an unprivileged user and has to read the private key, so it
 # lives in the builder's home; only the public half goes where apk looks.
 KEY=/home/builder/.abuild/moonshine-local.rsa
@@ -244,13 +285,12 @@ RUN <<'SCRIPT'
 set -eu
 BRUSH=/usr/bin/brush
 ROOT="${ROOT:?}"
-BRUSH=/usr/bin/brush
 
 [ -x "$ROOT$BRUSH" ] || { echo "brush not installed at $BRUSH" >&2; exit 1; }
 
-# /bin/sh belongs to the brush-binsh package (see brush/binsh.sh) so that apk
-# knows brush provides it; only the convenience alias is made by hand.
-[ -L "$ROOT/bin/sh" ] || { echo "/bin/sh missing -- brush-binsh not installed" >&2; exit 1; }
+# /bin/sh belongs to the brush-binsh package built above, so that apk knows
+# brush provides it; only the convenience alias is made by hand. The symlink
+# itself was already asserted there.
 ln -sf "$BRUSH" "$ROOT/bin/brush"
 
 # /etc/shells comes from alpine-baselayout-data listing busybox paths that do
@@ -263,9 +303,8 @@ sed -i "s#^root:x:0:0:root:/root:/bin/sh\$#root:x:0:0:root:/root:${BRUSH}#" \
     "$ROOT/etc/passwd"
 SCRIPT
 
-# uutils, when asked for. Same two checks as brush above: a sha256 pin and
-# apk's signature verification, against the same apk-releases key -- this
-# package is built and signed by this repo's own CI (see
+# uutils, when asked for. Signed by the same apk-releases key as brush -- this
+# package is built and released by this repo's own CI (see
 # .github/workflows/build-apk.yml), so the asset name carries both its
 # pkgver/pkgrel and the moonshine release it was published under.
 RUN <<'SCRIPT'
@@ -274,31 +313,9 @@ if [ "$UTILS" != uutils ]; then exit 0; fi
 ROOT="${ROOT:?}"
 : "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release uutils was published under}"
 
-cat > /uutils-checksums.txt <<'SUMS'
-# sha256 of the uutils apks published at
-# https://github.com/bbusse/moonshine/releases
-# Regenerate with:
-#   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
-0a9ec199bf99877e006b8b30ee990e615fbc77c445d5db45ac489fa6f804cb8b  uutils-0.10.0-r0.aarch64-v0-rc1.apk
-111a0d05894c157b9a5290e9c977f335e72248c29fcb0b8ed6db29ed8057e646  uutils-0.10.0-r0.x86_64-v0-rc1.apk
-SUMS
-
 ARCH="$(apk --print-arch)"
-ASSET="uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
-
-expected="$(awk -v a="$ASSET" '$2 == a { print $1 }' /uutils-checksums.txt)"
-if [ -z "$expected" ]; then
-    echo "no checksum pinned for $ASSET" >&2
-    echo "uutils has to be in a published release before UTILS=uutils can" >&2
-    echo "build; tag one, then: make uutils-checksums MOONSHINE_VERSION=<tag>" >&2
-    exit 1
-fi
-
-echo "fetching $ASSET"
-wget -q -O /uutils.apk \
-    "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}/${ASSET}"
-echo "${expected}  /uutils.apk" | sha256sum -c - >/dev/null
-echo "checksum ok"
+fetch-apk "https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}" \
+    "uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" /uutils.apk
 
 apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys /uutils.apk
 rm -f /uutils.apk
