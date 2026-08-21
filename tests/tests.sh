@@ -17,6 +17,7 @@ BASE_IMAGE="${BASE_IMAGE:-moonshine-base:musl}"
 BRUSH_IMAGE="${BRUSH_IMAGE:-moonshine-brush:latest}"
 APK_IMAGE="${APK_IMAGE:-moonshine-apk:latest}"
 SWAY_IMAGE="${SWAY_IMAGE:-moonshine-sway:latest}"
+STAGE3_IMAGE="${STAGE3_IMAGE:-gentoo-stage3:local}"
 UTILS="${UTILS:-none}"
 HELPER="${HELPER:-docker.io/library/alpine:3.24}"
 
@@ -324,4 +325,52 @@ test_brush_image_has_no_libc() {
 }
 test_brush_image_is_brush_and_tmp_only() {
     brush_fs 'test "$(find . -type f | wc -l)" = 1' || fail "brush image has more than just the brush binary"
+}
+
+# stage3 tests -- skipped unless the image has been built with `make catalyst`.
+# The build requires a stage1 tarball and --privileged, so it is not wired into
+# setup_suite; run `make catalyst` first, then re-run the tests.
+stage3_fs() { fs "$STAGE3_IMAGE" "$1"; }
+_stage3_available() { $ENGINE image inspect "$STAGE3_IMAGE" >/dev/null 2>&1; }
+
+test_stage3_bash_present() {
+    _stage3_available || return 0
+    stage3_fs 'test -x usr/bin/bash' || fail "bash binary missing from stage3"
+}
+test_stage3_emerge_present() {
+    _stage3_available || return 0
+    stage3_fs 'test -x usr/bin/emerge' || fail "emerge not present in stage3"
+}
+test_stage3_gentoo_release_present() {
+    _stage3_available || return 0
+    stage3_fs 'test -s etc/gentoo-release' || fail "/etc/gentoo-release missing or empty"
+}
+# The portage tree and distfiles are stripped after the build to keep the image
+# lean; consumers sync them on first use.
+test_stage3_portage_tree_absent() {
+    _stage3_available || return 0
+    stage3_fs '! test -d var/db/repos/gentoo' || fail "portage tree was not removed from stage3"
+}
+test_stage3_no_distfiles_left() {
+    _stage3_available || return 0
+    stage3_fs '! find var/cache/distfiles -mindepth 1 | grep -q .' \
+        || fail "distfiles left behind in stage3"
+}
+test_stage3_no_build_tmpfiles() {
+    _stage3_available || return 0
+    stage3_fs '! find var/tmp/portage -mindepth 1 | grep -q .' \
+        || fail "portage build temp files left behind in stage3"
+}
+test_stage3_etc_portage_present() {
+    _stage3_available || return 0
+    stage3_fs 'test -d etc/portage' || fail "/etc/portage missing from stage3"
+}
+test_stage3_bash_runs() {
+    _stage3_available || return 0
+    run_in "$STAGE3_IMAGE" /usr/bin/bash -c 'exit 0' || fail "bash did not run in stage3"
+}
+test_stage3_emerge_reports_version() {
+    _stage3_available || return 0
+    run_in "$STAGE3_IMAGE" /usr/bin/emerge --version >/dev/null \
+        || fail "emerge --version failed in stage3"
 }
