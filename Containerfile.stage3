@@ -38,7 +38,6 @@ mkdir -p /etc/catalyst
 cat > /etc/catalyst/catalyst.conf <<CONF
 storedir="/var/tmp/catalyst"
 distdir="/var/cache/distfiles"
-options=""
 jobs=${JOBS}
 CONF
 
