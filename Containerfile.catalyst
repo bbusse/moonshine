@@ -157,14 +157,6 @@ PYFIX
 # builder entirely.  cgi, cvs, mediawiki and subversion are listed with it
 # because git's REQUIRED_USE ties each of them to perl: leaving one enabled
 # turns -perl into a solver error rather than a saving.
-#
-# Catalyst RDEPENDs on virtual/cdrtools unconditionally (it shells out to
-# mkisofs for iso/livecd targets).  That virtual resolves to app-cdr/cdrtools
-# by default, which carries Schilling's own non-autotools build system and
-# fails `emake` against current glibc/gcc.  The virtual exists to let you pick
-# the provider, so mask cdrtools and let app-cdr/cdrkit -- the cmake-based
-# genisoimage/wodim fork -- satisfy it instead.  Nothing here builds an ISO;
-# this dependency only has to resolve.
 RUN <<'SCRIPT'
 set -eu
 mkdir -p /etc/portage/package.use /etc/portage/package.mask
@@ -172,6 +164,7 @@ cat > /etc/portage/package.use/catalyst <<USE
 >=sys-apps/util-linux-2.42.2 python
 >=sys-boot/grub-2.14-r5 grub_platforms_efi-32
 dev-vcs/git -perl -cgi -cvs -mediawiki -subversion
+dev-util/catalyst -iso -doc -qcow2 python_targets_python3_13
 USE
 cat > /etc/portage/package.mask/catalyst <<MASK
 app-cdr/cdrtools
