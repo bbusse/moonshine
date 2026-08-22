@@ -73,7 +73,13 @@ RUN apk add --no-cache /tmp/packages/uutils.apk && rm -rf /tmp/packages
 # behind in the stage they discard. Anything a particular application links
 # against belongs in that application's image, not in this one
 ARG PYTHON_PKGS="python3"
-RUN apk add --no-cache ${PYTHON_PKGS}
+# pydoc_data is documentation for a tool nothing here calls, and the stdlib's
+# byte code is regenerated on first import
+RUN apk add --no-cache ${PYTHON_PKGS} && \
+    python3 -c "import pathlib, shutil; \
+lib = next(pathlib.Path('/usr/lib').glob('python3.*')); \
+shutil.rmtree(lib / 'pydoc_data', ignore_errors=True); \
+[shutil.rmtree(d, ignore_errors=True) for d in list(lib.rglob('__pycache__'))]"
 
 # Assert the interpreter actually runs, so a broken rootfs fails here rather
 # than in whatever gets built on top of this
