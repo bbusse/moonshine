@@ -39,16 +39,18 @@ cat > /etc/catalyst/catalyst.conf <<CONF
 storedir = "/var/tmp/catalyst"
 distdir = "/var/cache/distfiles"
 jobs = ${JOBS}
-# TOML array, not omitted and not "": catalyst defaults options to a set() and
-# then calls .extend() on it, so anything but a list crashes before the build.
 options = ["bindist"]
 CONF
 
 PROFILE="${PROFILE:-default/linux/${SUBARCH}/23.0}"
 
-snap="$(ls /var/tmp/catalyst/snapshots/portage-*.sqfs | sort | tail -1 \
-    | xargs basename | sed 's/\.sqfs//')"
+snap=""
+for f in /var/tmp/catalyst/snapshots/gentoo-*.sqfs; do
+    if [ -e "$f" ]; then snap="$f"; fi
+done
 [ -n "$snap" ] || { echo "no portage snapshot found" >&2; exit 1; }
+treeish="${snap##*/gentoo-}"
+treeish="${treeish%.sqfs}"
 
 cat > /var/tmp/catalyst/stage3.spec <<SPEC
 subarch: ${SUBARCH}
@@ -56,7 +58,7 @@ target: stage3
 version_stamp: container
 rel_type: default
 profile: ${PROFILE}
-snapshot: ${snap}
+snapshot_treeish: ${treeish}
 source_subpath: default/seed
 SPEC
 SCRIPT
@@ -69,8 +71,10 @@ RUN catalyst -f /var/tmp/catalyst/stage3.spec
 # Copy the stage3 tarball Catalyst produced to a fixed path for extraction
 RUN <<'SCRIPT'
 set -eu
-tarball="$(ls /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz \
-    2>/dev/null | head -1)"
+tarball=""
+for f in /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz; do
+    if [ -e "$f" ]; then tarball="$f"; fi
+done
 [ -n "$tarball" ] || { echo "Catalyst produced no stage3 tarball" >&2; exit 1; }
 cp "$tarball" /stage3.tar.xz
 SCRIPT

@@ -194,7 +194,7 @@ snap_dir=/var/tmp/catalyst/snapshots
 mkdir -p "$snap_dir"
 stamp="$(date -u +%Y%m%d)"
 gensquashfs --pack-dir "$tree" --compressor xz --force --quiet \
-    "${snap_dir}/portage-${stamp}.sqfs"
+    "${snap_dir}/gentoo-${stamp}.sqfs"
 SCRIPT
 
 LABEL org.opencontainers.image.title="moonshine-catalyst" \
