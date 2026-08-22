@@ -69,6 +69,7 @@ sway: apk ## build the sway image on top of the apk image
 
 sway-web: sway ## build the sway image with Firefox and geckodriver
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg SWAY_IMAGE=$(SWAY_IMAGE) \
+	  --build-arg ALPINE_TAG=$(ALPINE_TAG) \
 	  -f Containerfile.sway-web -t $(SWAY_WEB_IMAGE) .
 
 catalyst: ## build the Catalyst builder image (seed + catalyst + portage snapshot)
