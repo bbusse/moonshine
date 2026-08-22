@@ -36,9 +36,12 @@ set -eu
 mkdir -p /etc/catalyst
 
 cat > /etc/catalyst/catalyst.conf <<CONF
-storedir="/var/tmp/catalyst"
-distdir="/var/cache/distfiles"
-jobs=${JOBS}
+storedir = "/var/tmp/catalyst"
+distdir = "/var/cache/distfiles"
+jobs = ${JOBS}
+# TOML array, not omitted and not "": catalyst defaults options to a set() and
+# then calls .extend() on it, so anything but a list crashes before the build.
+options = ["bindist"]
 CONF
 
 PROFILE="${PROFILE:-default/linux/${SUBARCH}/23.0}"
