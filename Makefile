@@ -12,6 +12,7 @@ BASE_IMAGE  ?= moonshine-base:brush
 BRUSH_IMAGE ?= moonshine-brush:latest
 APK_IMAGE   ?= moonshine-apk:latest
 SWAY_IMAGE  ?= moonshine-sway:latest
+SWAY_WEB_IMAGE ?= moonshine-sway-web:latest
 CATALYST_IMAGE ?= moonshine-catalyst:local
 STAGE3_IMAGE ?= moonshine-stage3:local
 PLATFORM    ?=
@@ -51,9 +52,9 @@ BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 
-.PHONY: all base brush apk sway catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
-all: base apk brush sway ## build every image
+all: base apk brush sway sway-web ## build every image
 
 base: ## build the base rootfs image (brush as /bin/sh, no busybox)
 	$(ENGINE) build $(PLATFORM_ARG) $(BASE_ARGS) -f Containerfile.base -t $(BASE_IMAGE) .
@@ -65,6 +66,10 @@ apk: ## build the base image with apk on board
 sway: apk ## build the sway image on top of the apk image
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg APK_IMAGE=$(APK_IMAGE) $(SWAY_ARGS) \
 	  -f Containerfile.sway -t $(SWAY_IMAGE) .
+
+sway-web: sway ## build the sway image with Firefox and geckodriver
+	$(ENGINE) build $(PLATFORM_ARG) --build-arg SWAY_IMAGE=$(SWAY_IMAGE) \
+	  -f Containerfile.sway-web -t $(SWAY_WEB_IMAGE) .
 
 catalyst: ## build the Catalyst builder image (seed + catalyst + portage snapshot)
 	$(ENGINE) build $(PLATFORM_ARG) \
@@ -140,7 +145,7 @@ uutils-checksums: ## re-pin uutils apk checksums for MOONSHINE_VERSION/UUTILS_PK
 	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
 clean: ## remove built images
-	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
+	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
 
 _check-remote:
 	@git remote get-url $(REMOTE) > /dev/null 2>&1 || \
