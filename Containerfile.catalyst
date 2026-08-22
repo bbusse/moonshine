@@ -179,13 +179,27 @@ SCRIPT
 # whose installed USE cannot satisfy a dependency atom.
 RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst sys-fs/squashfs-tools-ng
 
+RUN python3 - <<'PYFIX'
+import glob, re, sys
+ok = False
+for path in glob.glob('/usr/lib/python*/site-packages/catalyst/base/targetbase.py'):
+    src = open(path).read()
+    new = re.sub(r"(\{treeish\})\.sqfs'", r"\1'", src)
+    if new == src:
+        print('no match in:', path, file=sys.stderr)
+        continue
+    open(path, 'w').write(new)
+    import compileall
+    compileall.compile_file(path, quiet=2)
+    print('patched:', path, file=sys.stderr)
+    ok = True
+sys.exit(0 if ok else 1)
+PYFIX
+
 # Stage the seed tarball where Catalyst expects it.
 RUN mkdir -p /var/tmp/catalyst/builds/default
 COPY --from=seed /seed.tar.xz /var/tmp/catalyst/builds/default/seed.tar.xz
 
-# Create the portage snapshot that Catalyst requires (squashfs format).
-# emerge-webrsync produces an rsync-based checkout, not a git repo, so
-# catalyst --snapshot is not usable here; build the squashfs directly
 RUN <<'SCRIPT'
 set -eu
 tree="$(awk -F'[= ]+' '/^[[:space:]]*location/ { print $2; exit }' \
@@ -193,8 +207,7 @@ tree="$(awk -F'[= ]+' '/^[[:space:]]*location/ { print $2; exit }' \
 snap_dir=/var/tmp/catalyst/snapshots
 mkdir -p "$snap_dir"
 stamp="$(date -u +%Y%m%d)"
-gensquashfs --pack-dir "$tree" --compressor xz --force --quiet \
-    "${snap_dir}/gentoo-${stamp}.sqfs"
+mv "$tree" "${snap_dir}/gentoo-${stamp}"
 SCRIPT
 
 LABEL org.opencontainers.image.title="moonshine-catalyst" \

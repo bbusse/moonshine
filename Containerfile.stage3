@@ -45,12 +45,11 @@ CONF
 PROFILE="${PROFILE:-default/linux/${SUBARCH}/23.0}"
 
 snap=""
-for f in /var/tmp/catalyst/snapshots/gentoo-*.sqfs; do
-    if [ -e "$f" ]; then snap="$f"; fi
+for f in /var/tmp/catalyst/snapshots/gentoo-*; do
+    if [ -d "$f" ]; then snap="$f"; fi
 done
 [ -n "$snap" ] || { echo "no portage snapshot found" >&2; exit 1; }
 treeish="${snap##*/gentoo-}"
-treeish="${treeish%.sqfs}"
 
 cat > /var/tmp/catalyst/stage3.spec <<SPEC
 subarch: ${SUBARCH}

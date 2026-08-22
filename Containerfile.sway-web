@@ -16,6 +16,7 @@ mkdir -p /home/builder/.abuild
 KEY=/home/builder/.abuild/moonshine-local.rsa
 openssl genrsa -out "$KEY" 4096 2>/dev/null
 openssl rsa -in "$KEY" -pubout -out "${KEY}.pub" 2>/dev/null
+install -m 0644 "${KEY}.pub" /etc/apk/keys/moonshine-local.rsa.pub
 
 cat > /home/builder/.abuild/abuild.conf <<CONF
 PACKAGER_PRIVKEY="$KEY"
@@ -35,15 +36,15 @@ license="BSD-3-Clause"
 provides="so:libEGL.so.1=1 so:libGL.so.1=1"
 provider_priority=1
 source=""
-options="!check !strip !tracedeps"
+options="!check !strip !tracedeps !archcheck !dbg"
 
 package() {
-    mkdir -p "$pkgdir"
+    install -Dm644 /dev/null "$pkgdir"/usr/share/gl-stub/.keep
 }
 APKBUILD
 
 chown -R builder:abuild "$W" /home/builder
-su builder -c "cd $W && abuild -d" >/dev/null 2>&1
+su builder -c "cd $W && abuild -d"
 
 pkg="$(find /home/builder/packages -name 'gl-stub-*.apk' | head -n 1)"
 [ -n "$pkg" ] || { echo "gl-stub build produced nothing" >&2; exit 1; }
