@@ -180,19 +180,26 @@ SCRIPT
 RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst sys-fs/squashfs-tools-ng
 
 RUN python3 - <<'PYFIX'
-import glob, re, sys
-ok = False
-for path in glob.glob('/usr/lib/python*/site-packages/catalyst/base/targetbase.py'):
-    src = open(path).read()
-    new = re.sub(r"(\{treeish\})\.sqfs'", r"\1'", src)
-    if new == src:
-        print('no match in:', path, file=sys.stderr)
-        continue
-    open(path, 'w').write(new)
-    import compileall
-    compileall.compile_file(path, quiet=2)
-    print('patched:', path, file=sys.stderr)
-    ok = True
+import compileall, glob, re, sys
+edits = [
+    ('catalyst/base/targetbase.py', r"(\{treeish\})\.sqfs'", r"\1'"),
+    ('catalyst/support.py', r'\{"location": repo_path\}', '{"location": str(repo_path)}'),
+]
+ok = True
+for rel, pat, rep in edits:
+    hit = False
+    for path in glob.glob('/usr/lib/python*/site-packages/' + rel):
+        src = open(path).read()
+        new = re.sub(pat, rep, src)
+        if new == src:
+            continue
+        open(path, 'w').write(new)
+        compileall.compile_file(path, quiet=2)
+        print('patched:', path, file=sys.stderr)
+        hit = True
+    if not hit:
+        print('no match for:', rel, file=sys.stderr)
+        ok = False
 sys.exit(0 if ok else 1)
 PYFIX
 
