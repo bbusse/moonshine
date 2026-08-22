@@ -1,0 +1,48 @@
+# moonshine sway-web -- sway plus a wayland-native Firefox
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Unlike the sway image below it, this one carries mesa: firefox links
+# libGL/libEGL, mesa-gl is the only provider, and it pulls mesa and llvm-libs
+# behind it -- 225 MB that never renders anything under WLR_RENDERER=pixman.
+# There is no packaged way around it; a build without GL would have to be our
+# own apk, as sway-pixman is.
+
+ARG SWAY_IMAGE=moonshine-sway:latest
+
+FROM ${SWAY_IMAGE}
+
+RUN <<'SCRIPT'
+set -eu
+apk add --no-cache \
+    firefox \
+    geckodriver \
+    cairo \
+    pango \
+    libxkbcommon \
+    font-dejavu \
+    font-noto \
+    font-terminus \
+    font-inconsolata \
+    font-awesome
+
+fc-cache -f
+SCRIPT
+
+RUN <<'SCRIPT'
+set -eu
+mkdir -p /etc/sway/config.d
+echo "xwayland disable" > /etc/sway/config.d/xwayland
+SCRIPT
+
+ENV MOZ_ENABLE_WAYLAND=1 \
+    GECKODRIVER=/usr/bin/geckodriver \
+    FIREFOX_BIN=/usr/bin/firefox
+
+LABEL org.opencontainers.image.title="moonshine-sway-web" \
+      org.opencontainers.image.description="sway with a wayland-native Firefox and geckodriver" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+
+CMD ["/usr/bin/sway"]
