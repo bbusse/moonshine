@@ -1,0 +1,84 @@
+# moonshine stage3 - a Gentoo stage3 built by Catalyst
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Runs the builder from Containerfile.catalyst, which already carries the seed
+# tarball, an installed Catalyst and a portage snapshot. All that is left is to
+# write a spec and run it -- but that run is `emerge --emptytree @system`, i.e.
+# the whole system set compiled from source. Hours, not minutes.
+#
+# Catalyst bind-mounts /proc /sys /dev into its build chroot, so this build
+# needs elevated capabilities (podman build has no --privileged):
+#   podman build --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+#     --build-arg CATALYST_IMAGE=moonshine-catalyst:local \
+#     --build-arg JOBS=$(nproc) \
+#     -f Containerfile.stage3 -t moonshine-stage3:local .
+#
+# SUBARCH and PROFILE must match the seed baked into the catalyst image; an
+# arm64 seed with an amd64 profile fails inside the chroot, not here.
+
+ARG CATALYST_IMAGE=moonshine-catalyst:latest
+ARG SUBARCH=amd64
+# Empty by default and derived from SUBARCH below; override for a non-default
+# profile (hardened, musl, llvm). The 23.0 profiles exist for amd64 and arm64.
+ARG PROFILE=
+ARG JOBS=4
+
+FROM ${CATALYST_IMAGE} AS build
+ARG SUBARCH
+ARG PROFILE
+ARG JOBS
+
+# Write catalyst.conf and the stage3 spec
+RUN <<'SCRIPT'
+set -eu
+mkdir -p /etc/catalyst
+
+cat > /etc/catalyst/catalyst.conf <<CONF
+storedir="/var/tmp/catalyst"
+distdir="/var/cache/distfiles"
+options=""
+jobs=${JOBS}
+CONF
+
+PROFILE="${PROFILE:-default/linux/${SUBARCH}/23.0}"
+
+snap="$(ls /var/tmp/catalyst/snapshots/portage-*.sqfs | sort | tail -1 \
+    | xargs basename | sed 's/\.sqfs//')"
+[ -n "$snap" ] || { echo "no portage snapshot found" >&2; exit 1; }
+
+cat > /var/tmp/catalyst/stage3.spec <<SPEC
+subarch: ${SUBARCH}
+target: stage3
+version_stamp: container
+rel_type: default
+profile: ${PROFILE}
+snapshot: ${snap}
+source_subpath: default/seed
+SPEC
+SCRIPT
+
+# Build the stage3.  Catalyst chroots into the seed and runs
+# emerge --emptytree @system inside it -- the whole system set, from source.
+# This is the step the capabilities above are for.
+RUN catalyst -f /var/tmp/catalyst/stage3.spec
+
+# Unpack the stage3 tarball Catalyst produced
+RUN <<'SCRIPT'
+set -eu
+tarball="$(ls /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz \
+    2>/dev/null | head -1)"
+[ -n "$tarball" ] || { echo "Catalyst produced no stage3 tarball" >&2; exit 1; }
+mkdir -p /stage3root
+tar -xpf "$tarball" -C /stage3root
+SCRIPT
+
+FROM scratch
+COPY --from=build /stage3root/ /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LABEL org.opencontainers.image.title="moonshine-stage3" \
+      org.opencontainers.image.description="Gentoo stage3 built from a seed via Catalyst" \
+      org.opencontainers.image.licenses="GPL-2.0-only" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+CMD ["/bin/bash"]

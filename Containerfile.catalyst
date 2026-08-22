@@ -1,0 +1,194 @@
+# moonshine catalyst - a Gentoo build host with Catalyst installed
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# This image is the *builder*, not the product: a seed rootfs with Catalyst
+# emerged into it and a portage snapshot staged where Catalyst expects one.
+# Containerfile.stage3 runs it to produce an actual stage3.
+#
+# Split in two because the halves have very different costs and lifetimes.
+# Everything here -- fetching the seed, syncing the tree, emerging Catalyst and
+# its perl/util-linux dependency mess, squashing the snapshot -- is tens of
+# minutes and changes rarely. `catalyst -f` in Containerfile.stage3 is hours,
+# and is what you re-run when a profile, variant or spec changes. Building them
+# together meant paying the first cost on every attempt at the second.
+#
+# Portage (sys-apps/portage, the package manager) is already part of the
+# stage1 bootstrap set -- no separate install is needed.
+#
+# The portage tree (ebuilds) is fetched via emerge-webrsync, which downloads
+# a dated snapshot from Gentoo mirrors and GPG-verifies it.
+#
+# Catalyst is installed from that synced tree. It builds the stage3 by
+# chrooting into the seed and running emerge --emptytree @system -- see
+# Containerfile.stage3.
+#
+# STAGE1: path to a local stage1 (or stage3) tarball in the build context.
+#         When omitted, the current official Gentoo stage3 for SUBARCH/VARIANT
+#         is downloaded from distfiles.gentoo.org.
+#
+# Nothing here needs elevated capabilities -- the chroot happens in
+# Containerfile.stage3, which does.
+#   podman build [--build-arg STAGE1=stage1-amd64-<timestamp>.tar.xz] \
+#     --build-arg JOBS=$(nproc) \
+#     -f Containerfile.catalyst -t moonshine-catalyst:local .
+
+ARG STAGE1=
+ARG SUBARCH=amd64
+ARG VARIANT=openrc
+ARG JOBS=4
+
+# Seed fetcher: resolves /seed.tar.xz from either the build context or
+# Gentoo mirrors.
+#
+# COPY falls back to .catalyst-sentinel (a stable empty file committed to the
+# repo) when STAGE1 is empty.  An empty file is not a tarball, so the RUN
+# below detects that and downloads the current stage3 instead.
+# Using a stable sentinel (rather than Containerfile.catalyst itself) means
+# edits to this file do not bust the expensive seed-download cache layer.
+FROM alpine AS seed
+ARG STAGE1
+ARG SUBARCH
+ARG VARIANT
+RUN apk add --no-cache file wget
+COPY ${STAGE1:-.catalyst-sentinel} /maybe-seed
+RUN <<'SCRIPT'
+set -eu
+if file /maybe-seed | grep -qiE 'XZ compressed|gzip compressed|bzip2 compressed'; then
+    mv /maybe-seed /seed.tar.xz
+    exit 0
+fi
+# No valid tarball -- fetch the current stage3 from Gentoo mirrors.
+url_base="https://distfiles.gentoo.org/releases/${SUBARCH}/autobuilds"
+dir="current-stage3-${SUBARCH}-${VARIANT}"
+# latest-stage3-*.txt is PGP-signed and lists the bare filename; match on the
+# tarball extension to skip the PGP headers, then prepend the directory.
+filename="$(wget -qO- "${url_base}/${dir}/latest-stage3-${SUBARCH}-${VARIANT}.txt" \
+    | awk '/\.tar\.(xz|bz2|gz)/ { print $1; exit }')"
+[ -n "$filename" ] || { echo "could not resolve current stage3 URL" >&2; exit 1; }
+echo "downloading ${url_base}/${dir}/${filename}"
+wget -O /seed.tar.xz "${url_base}/${dir}/${filename}"
+SCRIPT
+
+# Unpack the seed into a clean root that the subsequent RUN steps will execute
+# inside and that Catalyst will use as its build chroot
+FROM alpine AS extractor
+RUN apk add --no-cache xz
+COPY --from=seed /seed.tar.xz /seed.tar.xz
+RUN mkdir -p /stage1root && tar -xpf /seed.tar.xz -C /stage1root
+
+FROM scratch AS catalyst
+COPY --from=extractor /stage1root/ /
+
+ARG SUBARCH
+ARG JOBS
+
+# Portage sandbox features that require kernel namespaces do not work inside
+# a container: ipc-sandbox and pid-sandbox each create a new namespace per
+# ebuild, which makes PTY slave fds stale (ENOTTY) and breaks portage's build
+# output capture.  Disable all four sandbox modes; the OCI runtime is the
+# isolation boundary.
+RUN <<'SCRIPT'
+set -eu
+echo 'FEATURES="-sandbox -usersandbox -ipc-sandbox -pid-sandbox -network-sandbox"' >> /etc/portage/make.conf
+cat >> /etc/portage/make.conf <<CONF
+MAKEOPTS="-j${JOBS}"
+EMERGE_DEFAULT_OPTS="--quiet-build"
+CONF
+SCRIPT
+
+# Fetch the portage tree.  Portage the tool is in the seed; only the ebuilds
+# tree is missing.  emerge-webrsync downloads a dated snapshot and GPG-verifies it
+RUN emerge-webrsync --quiet
+
+# In rootless containers, os.openpty() succeeds but termios.tcgetattr(slave_fd)
+# returns ENOTTY (errno 25): the devpts mount is present but the slave fd does
+# not support TTY ioctls under rootless podman.  Python 3.14's termios.error is
+# not a subclass of OSError, so portage's existing except clause does not catch
+# it.  Patch _pty.py to catch termios.error and fall back to a plain pipe so
+# that every emerge that compiles a package does not hang waiting on a PTY that
+# will never be ready.
+RUN python3 - <<'PYFIX'
+import glob, sys
+ok = False
+for path in glob.glob('/usr/lib/python*/site-packages/portage/util/_pty.py'):
+    src = open(path).read()
+    target = 'mode = termios.tcgetattr(slave_fd)'
+    if target not in src:
+        print('no match in:', path, file=sys.stderr)
+        continue
+    lines = src.splitlines(True)
+    out = []
+    for line in lines:
+        if target in line:
+            ind = ' ' * (len(line) - len(line.lstrip()))
+            out.extend([
+                ind + 'try:\n',
+                ind + '    ' + line.lstrip(),
+                ind + 'except termios.error:\n',
+                ind + '    os.close(master_fd)\n',
+                ind + '    os.close(slave_fd)\n',
+                ind + '    master_fd, slave_fd = os.pipe()\n',
+                ind + '    return False, master_fd, slave_fd\n',
+            ])
+        else:
+            out.append(line)
+    open(path, 'w').write(''.join(out))
+    import os, compileall
+    compileall.compile_file(path, quiet=2)
+    print('patched:', path, file=sys.stderr)
+    ok = True
+sys.exit(0 if ok else 1)
+PYFIX
+
+# Install Catalyst.  sys-fs/squashfs-tools (mksquashfs) is pulled in as a
+# dependency and is needed to create the portage snapshot below.
+# Catalyst is ~testing; pass ACCEPT_KEYWORDS inline so only this emerge call
+# sees the relaxed keyword, not the whole tree. It must follow SUBARCH --
+# hardcoding ~amd64 asks an arm64 build for the wrong keyword.
+#
+# The stage3 seed may ship an older perl than the current portage snapshot
+# expects.  Upgrade perl first so virtual/perl-* slot deps resolve cleanly.
+# Some of Catalyst's deep deps (grub, util-linux) also require USE changes
+# that the stage3 defaults don't set.
+RUN <<'SCRIPT'
+set -eu
+mkdir -p /etc/portage/package.use
+cat > /etc/portage/package.use/catalyst <<USE
+>=sys-apps/util-linux-2.42.2 python
+>=sys-boot/grub-2.14-r5 grub_platforms_efi-32
+USE
+# The stage3 seed and the portage snapshot we fetched may be out of sync:
+# the installed virtual/perl-* packages can carry slot constraints from
+# different perl major versions.  Resolve with --update --deep so emerge
+# upgrades perl and all of its virtual sub-packages together before catalyst
+# tries to pull them in transitively.
+emerge --quiet --update --deep --newuse dev-lang/perl
+SCRIPT
+
+RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet --update --deep --newuse dev-util/catalyst
+
+# Stage the seed tarball where Catalyst expects it.
+RUN mkdir -p /var/tmp/catalyst/builds/default
+COPY --from=seed /seed.tar.xz /var/tmp/catalyst/builds/default/seed.tar.xz
+
+# Create the portage snapshot that Catalyst requires (squashfs format).
+# emerge-webrsync produces an rsync-based checkout, not a git repo, so
+# catalyst --snapshot is not usable here; build the squashfs directly
+RUN <<'SCRIPT'
+set -eu
+tree="$(awk -F'[= ]+' '/^[[:space:]]*location/ { print $2; exit }' \
+    /etc/portage/repos.conf/gentoo.conf 2>/dev/null || echo /var/db/repos/gentoo)"
+snap_dir=/var/tmp/catalyst/snapshots
+mkdir -p "$snap_dir"
+stamp="$(date -u +%Y%m%d)"
+mksquashfs "$tree" "${snap_dir}/portage-${stamp}.sqfs" \
+    -comp xz -noappend -no-progress >/dev/null
+SCRIPT
+
+LABEL org.opencontainers.image.title="moonshine-catalyst" \
+      org.opencontainers.image.description="Gentoo seed rootfs with Catalyst and a portage snapshot, for building stages" \
+      org.opencontainers.image.licenses="GPL-2.0-only" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+CMD ["/usr/bin/catalyst", "--help"]
