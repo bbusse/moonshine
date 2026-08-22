@@ -64,21 +64,14 @@ SCRIPT
 # This is the step the capabilities above are for.
 RUN catalyst -f /var/tmp/catalyst/stage3.spec
 
-# Unpack the stage3 tarball Catalyst produced
+# Copy the stage3 tarball Catalyst produced to a fixed path for extraction
 RUN <<'SCRIPT'
 set -eu
 tarball="$(ls /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz \
     2>/dev/null | head -1)"
 [ -n "$tarball" ] || { echo "Catalyst produced no stage3 tarball" >&2; exit 1; }
-mkdir -p /stage3root
-tar -xpf "$tarball" -C /stage3root
+cp "$tarball" /stage3.tar.xz
 SCRIPT
 
 FROM scratch
-COPY --from=build /stage3root/ /
-ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-LABEL org.opencontainers.image.title="moonshine-stage3" \
-      org.opencontainers.image.description="Gentoo stage3 built from a seed via Catalyst" \
-      org.opencontainers.image.licenses="GPL-2.0-only" \
-      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
-CMD ["/bin/bash"]
+COPY --from=build /stage3.tar.xz /

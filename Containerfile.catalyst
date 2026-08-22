@@ -42,24 +42,23 @@ ARG JOBS=4
 # Seed fetcher: resolves /seed.tar.xz from either the build context or
 # Gentoo mirrors.
 #
-# COPY falls back to .catalyst-sentinel (a stable empty file committed to the
-# repo) when STAGE1 is empty.  An empty file is not a tarball, so the RUN
-# below detects that and downloads the current stage3 instead.
-# Using a stable sentinel (rather than Containerfile.catalyst itself) means
-# edits to this file do not bust the expensive seed-download cache layer.
+# A bind mount gives the script access to the build context without a COPY,
+# so no sentinel file is needed in the repo. BuildKit caches RUN
+# --mount=type=bind on instruction text and build args only, not on build
+# context contents, so edits to this file do not bust the seed-download layer.
 FROM alpine AS seed
-ARG STAGE1
+ARG STAGE1=
 ARG SUBARCH
 ARG VARIANT
 RUN apk add --no-cache file wget
-COPY ${STAGE1:-.catalyst-sentinel} /maybe-seed
-RUN <<'SCRIPT'
+RUN --mount=type=bind,target=/ctx <<'SCRIPT'
 set -eu
-if file /maybe-seed | grep -qiE 'XZ compressed|gzip compressed|bzip2 compressed'; then
-    mv /maybe-seed /seed.tar.xz
+if [ -n "${STAGE1:-}" ] && \
+   file "/ctx/$STAGE1" 2>/dev/null | grep -qiE 'XZ compressed|gzip compressed|bzip2 compressed'; then
+    cp "/ctx/$STAGE1" /seed.tar.xz
     exit 0
 fi
-# No valid tarball -- fetch the current stage3 from Gentoo mirrors.
+# No valid tarball provided -- fetch the current stage3 from Gentoo mirrors.
 url_base="https://distfiles.gentoo.org/releases/${SUBARCH}/autobuilds"
 dir="current-stage3-${SUBARCH}-${VARIANT}"
 # latest-stage3-*.txt is PGP-signed and lists the bare filename; match on the
