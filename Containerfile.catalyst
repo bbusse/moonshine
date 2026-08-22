@@ -95,6 +95,7 @@ cat >> /etc/portage/make.conf <<CONF
 MAKEOPTS="-j${JOBS}"
 EMERGE_DEFAULT_OPTS="--quiet-build"
 CONF
+echo 'PYTHON_TARGETS="${PYTHON_TARGETS} python3_13"' >> /etc/portage/make.conf
 SCRIPT
 
 # Fetch the portage tree.  Portage the tool is in the seed; only the ebuilds
