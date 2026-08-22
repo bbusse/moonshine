@@ -15,11 +15,13 @@ FROM ${SWAY_IMAGE}
 
 RUN <<'SCRIPT'
 set -eu
+
 apk add --no-cache \
     firefox \
     geckodriver \
     cairo \
     pango \
+    sed \
     libxkbcommon \
     font-dejavu \
     font-noto \
