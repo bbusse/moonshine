@@ -1,0 +1,92 @@
+---
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Build Stage3
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage1_url:
+        description: >-
+          URL of a Gentoo stage1 tarball to seed the build.
+          When omitted, Containerfile.catalyst downloads the current
+          official stage3 for this arch from Gentoo mirrors.
+        required: false
+        default: ''
+      subarch:
+        description: Target architecture (amd64 or arm64)
+        required: false
+        default: amd64
+
+jobs:
+  build-stage3:
+    name: Build stage3 (${{ inputs.subarch }})
+    runs-on: ${{ inputs.subarch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Free up disk for the @system build
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: Log in to ghcr
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" \
+            | sudo podman login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Fetch seed tarball
+        if: inputs.stage1_url != ''
+        run: curl -fsSL -o seed.tar.xz '${{ inputs.stage1_url }}'
+
+      - name: Build stage3
+        env:
+          IMAGE: ghcr.io/bbusse/moonshine-stage3-${{ inputs.subarch }}:latest
+        run: |
+          args=""
+          if [ -f seed.tar.xz ]; then
+            args="--build-arg STAGE1=seed.tar.xz"
+          fi
+          sudo podman build \
+            --cap-add SYS_ADMIN --cap-add SYS_CHROOT --cap-add MKNOD \
+            --build-arg CATALYST_IMAGE=ghcr.io/bbusse/moonshine-catalyst-${{ inputs.subarch }}:latest \
+            --build-arg SUBARCH=${{ inputs.subarch }} \
+            --build-arg JOBS="$(nproc)" \
+            $args \
+            -f Containerfile.stage3 \
+            -t "$IMAGE" .
+
+      - name: Push stage3 image
+        env:
+          IMAGE: ghcr.io/bbusse/moonshine-stage3-${{ inputs.subarch }}:latest
+        run: sudo podman push "$IMAGE"
+
+  extract-stage3:
+    name: Extract stage3 (${{ inputs.subarch }})
+    needs: build-stage3
+    permissions:
+      contents: write
+      packages: read
+    uses: bbusse/github-workflows/.github/workflows/container-extract-artifacts.yml@dev
+    with:
+      image: ghcr.io/bbusse/moonshine-stage3-${{ inputs.subarch }}:latest
+      use_arm_runner: ${{ inputs.subarch == 'arm64' }}
+      release: true
+      release_tag: latest
+      artifacts: |
+        [
+          {"path": "stage3.tar.xz",
+           "name": "stage3-${{ inputs.subarch }}.tar.xz",
+           "platform": "linux/${{ inputs.subarch }}"}
+        ]
+    secrets:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
