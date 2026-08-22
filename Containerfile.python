@@ -67,10 +67,12 @@ FROM ${APK_IMAGE}
 COPY --from=pyfetch /packages/ /tmp/packages/
 RUN apk add --no-cache /tmp/packages/uutils.apk && rm -rf /tmp/packages
 
-# python3 brings musl and libffi with it; py3-pip is what makes `python3 -m
-# venv` able to seed a venv at all. Anything a particular application links
+# python3 brings musl and libffi with it. py3-pip is deliberately not here:
+# it is 11 MB that only a build stage needs, and a later layer cannot take it
+# back out again, so images that build a venv add it themselves and leave it
+# behind in the stage they discard. Anything a particular application links
 # against belongs in that application's image, not in this one
-ARG PYTHON_PKGS="python3 py3-pip"
+ARG PYTHON_PKGS="python3"
 RUN apk add --no-cache ${PYTHON_PKGS}
 
 # Assert the interpreter actually runs, so a broken rootfs fails here rather
