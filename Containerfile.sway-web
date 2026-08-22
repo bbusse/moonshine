@@ -2,19 +2,65 @@
 #
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Unlike the sway image below it, this one carries mesa: firefox links
-# libGL/libEGL, mesa-gl is the only provider, and it pulls mesa and llvm-libs
-# behind it -- 225 MB that never renders anything under WLR_RENDERER=pixman.
-# There is no packaged way around it; a build without GL would have to be our
-# own apk, as sway-pixman is.
 
 ARG SWAY_IMAGE=moonshine-sway:latest
+ARG ALPINE_TAG=3.24
+
+FROM docker.io/library/alpine:${ALPINE_TAG} AS glstub
+RUN <<'SCRIPT'
+set -eu
+apk add --no-cache abuild
+adduser -D -G abuild builder
+mkdir -p /home/builder/.abuild
+
+KEY=/home/builder/.abuild/moonshine-local.rsa
+openssl genrsa -out "$KEY" 4096 2>/dev/null
+openssl rsa -in "$KEY" -pubout -out "${KEY}.pub" 2>/dev/null
+
+cat > /home/builder/.abuild/abuild.conf <<CONF
+PACKAGER_PRIVKEY="$KEY"
+PACKAGER="moonshine <none@localhost>"
+CONF
+
+W=/tmp/aports/moonshine/gl-stub
+mkdir -p "$W"
+cat > "$W/APKBUILD" <<'APKBUILD'
+pkgname=gl-stub
+pkgver=1
+pkgrel=0
+pkgdesc="Claims so:libEGL.so.1 and so:libGL.so.1 for dlopen-only consumers"
+url="https://github.com/bbusse/moonshine"
+arch="all"
+license="BSD-3-Clause"
+provides="so:libEGL.so.1=1 so:libGL.so.1=1"
+provider_priority=1
+source=""
+options="!check !strip !tracedeps"
+
+package() {
+    mkdir -p "$pkgdir"
+}
+APKBUILD
+
+chown -R builder:abuild "$W" /home/builder
+su builder -c "cd $W && abuild -d" >/dev/null 2>&1
+
+pkg="$(find /home/builder/packages -name 'gl-stub-*.apk' | head -n 1)"
+[ -n "$pkg" ] || { echo "gl-stub build produced nothing" >&2; exit 1; }
+mkdir -p /out
+cp "$pkg" /out/gl-stub.apk
+cp "${KEY}.pub" /out/moonshine-local.rsa.pub
+SCRIPT
 
 FROM ${SWAY_IMAGE}
 
+COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
+COPY --from=glstub /out/gl-stub.apk /tmp/gl-stub.apk
+
 RUN <<'SCRIPT'
 set -eu
+apk add --no-cache /tmp/gl-stub.apk
+rm -f /tmp/gl-stub.apk
 
 apk add --no-cache \
     firefox \
@@ -30,6 +76,13 @@ apk add --no-cache \
     font-awesome
 
 fc-cache -f
+
+if apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs 2>/dev/null | grep -q .; then
+    echo "mesa got pulled in -- gl-stub did not satisfy the solver" >&2
+    exit 1
+fi
+
+firefox --version
 SCRIPT
 
 RUN <<'SCRIPT'
@@ -43,7 +96,7 @@ ENV MOZ_ENABLE_WAYLAND=1 \
     FIREFOX_BIN=/usr/bin/firefox
 
 LABEL org.opencontainers.image.title="moonshine-sway-web" \
-      org.opencontainers.image.description="sway with a wayland-native Firefox and geckodriver" \
+      org.opencontainers.image.description="sway with a wayland-native Firefox and geckodriver, no mesa" \
       org.opencontainers.image.licenses="BSD-3-Clause" \
       org.opencontainers.image.source="https://github.com/bbusse/moonshine"
 
