@@ -73,5 +73,9 @@ tarball="$(ls /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz \
 cp "$tarball" /stage3.tar.xz
 SCRIPT
 
+# Export stage: the tarball alone, named per-arch so the two arches do not
+# collide as release assets. Matches gentoo-build and u-root-build, whose
+# extract workflow publishes an asset under its in-image filename.
 FROM scratch
-COPY --from=build /stage3.tar.xz /
+ARG SUBARCH
+COPY --from=build /stage3.tar.xz /stage3-${SUBARCH}.tar.xz

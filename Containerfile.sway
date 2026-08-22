@@ -40,8 +40,8 @@ cat > /checksums.txt <<'SUMS'
 # sha256 of the sway-pixman apks published at
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with: make sway-checksums MOONSHINE_VERSION=<tag> SWAY_PKGVER=<x.y.z> SWAY_PKGREL=<n>
-4663001a0811c88fe86bd7060997c6a2000eb730ec1171f6cfdb8c3f02420d6e  sway-pixman-1.12-r0.aarch64-v0-rc1.apk
-6f7bef71f34f44ab31c9c655aca5b4ec0ef776cab9bd36d9e96aae84e55124fd  sway-pixman-1.12-r0.x86_64-v0-rc1.apk
+d28f8434c63d8febdf0bfa9499b5904f2e69a05010b8f1d78144b1a75d16fc20  sway-pixman-1.12-r0.aarch64-v0-rc2.apk
+243eb8e318adfdfca3e2603c473c28b91862fa4e0f76aa029e6be5080233ae7c  sway-pixman-1.12-r0.x86_64-v0-rc2.apk
 c903538307fc39490ea5b75788e2d226c8c0e9569eebcf58784ec916ed361c76  uutils-0.10.0-r3.aarch64-v0-rc2.apk
 3a4ade16a06e19c96af8c2b4c5514d42f196ad1338005507eed67434285a7871  uutils-0.10.0-r3.x86_64-v0-rc2.apk
 SUMS
