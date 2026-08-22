@@ -147,26 +147,45 @@ PYFIX
 # sees the relaxed keyword, not the whole tree. It must follow SUBARCH --
 # hardcoding ~amd64 asks an arm64 build for the wrong keyword.
 #
-# The stage3 seed may ship an older perl than the current portage snapshot
-# expects.  Upgrade perl first so virtual/perl-* slot deps resolve cleanly.
-# Some of Catalyst's deep deps (grub, util-linux) also require USE changes
-# that the stage3 defaults don't set.
+# Some of Catalyst's deps (grub, util-linux) need USE changes the stage3
+# defaults don't set.
+#
+# Catalyst is Python; nothing in it wants perl.  Perl reaches this image only
+# through dev-vcs/git, whose perl USE flag (on by default) exists for
+# git-send-email, git-svn and gitweb -- none of which Catalyst calls.  Turning
+# it off keeps dev-lang/perl and the whole virtual/perl-* set out of the
+# builder entirely.  cgi, cvs, mediawiki and subversion are listed with it
+# because git's REQUIRED_USE ties each of them to perl: leaving one enabled
+# turns -perl into a solver error rather than a saving.
+#
+# Catalyst RDEPENDs on virtual/cdrtools unconditionally (it shells out to
+# mkisofs for iso/livecd targets).  That virtual resolves to app-cdr/cdrtools
+# by default, which carries Schilling's own non-autotools build system and
+# fails `emake` against current glibc/gcc.  The virtual exists to let you pick
+# the provider, so mask cdrtools and let app-cdr/cdrkit -- the cmake-based
+# genisoimage/wodim fork -- satisfy it instead.  Nothing here builds an ISO;
+# this dependency only has to resolve.
 RUN <<'SCRIPT'
 set -eu
-mkdir -p /etc/portage/package.use
+mkdir -p /etc/portage/package.use /etc/portage/package.mask
 cat > /etc/portage/package.use/catalyst <<USE
 >=sys-apps/util-linux-2.42.2 python
 >=sys-boot/grub-2.14-r5 grub_platforms_efi-32
+dev-vcs/git -perl -cgi -cvs -mediawiki -subversion
 USE
-# The stage3 seed and the portage snapshot we fetched may be out of sync:
-# the installed virtual/perl-* packages can carry slot constraints from
-# different perl major versions.  Resolve with --update --deep so emerge
-# upgrades perl and all of its virtual sub-packages together before catalyst
-# tries to pull them in transitively.
-emerge --quiet --update --deep --newuse dev-lang/perl
+cat > /etc/portage/package.mask/catalyst <<MASK
+app-cdr/cdrtools
+MASK
 SCRIPT
 
-RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet --update --deep --newuse dev-util/catalyst
+# No --update --deep here.  Those walk Catalyst's whole transitive dependency
+# graph and bring every package in it up to the freshly-synced snapshot, which
+# against an older seed means recompiling most of @system -- hours, for a
+# builder image that only needs Catalyst to run.  A plain emerge installs
+# what is missing and leaves the seed's own versions alone.  USE requirements
+# (util-linux[python] above) are still honoured: emerge rebuilds a package
+# whose installed USE cannot satisfy a dependency atom.
+RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst
 
 # Stage the seed tarball where Catalyst expects it.
 RUN mkdir -p /var/tmp/catalyst/builds/default

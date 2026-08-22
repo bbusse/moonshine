@@ -1,0 +1,5 @@
+FROM alpine:3.24 AS build
+RUN apk add --no-cache rust cargo
+WORKDIR /build
+COPY tools/swlc/ .
+RUN RUSTFLAGS="-C target-feature=+crt-static" cargo build --release
