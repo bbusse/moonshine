@@ -11,6 +11,7 @@ ALPINE_BRANCH ?= v3.24
 BASE_IMAGE  ?= moonshine-base:brush
 BRUSH_IMAGE ?= moonshine-brush:latest
 APK_IMAGE   ?= moonshine-apk:latest
+PYTHON_IMAGE ?= moonshine-python:latest
 SWAY_IMAGE  ?= moonshine-sway:latest
 SWAY_WEB_IMAGE ?= moonshine-sway-web:latest
 CATALYST_IMAGE ?= moonshine-catalyst:local
@@ -34,7 +35,7 @@ UTILS         ?= none
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists.
-MOONSHINE_VERSION ?= v0-rc2
+MOONSHINE_VERSION ?= v0-rc3
 
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
@@ -42,7 +43,7 @@ SWAY_PKGREL   ?= 0
 # uutils, from uutils/apkbuild/APKBUILD. Which utilities it contains is
 # set by _utils in that file, not here.
 UUTILS_PKGVER ?= 0.10.0
-UUTILS_PKGREL ?= 3
+UUTILS_PKGREL ?= 4
 
 RELEASE_URL   ?= https://github.com/bbusse/moonshine/releases/download
 
@@ -50,11 +51,12 @@ BRUSH_ARGS   = --build-arg BRUSH_VERSION=$(BRUSH_VERSION) --build-arg BRUSH_PKGR
 UUTILS_ARGS  = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(ALPINE_BRANCH) --build-arg UTILS=$(UTILS) $(BRUSH_ARGS) $(UUTILS_ARGS)
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
+PYTHON_ARGS  = --build-arg ALPINE_TAG=$(ALPINE_TAG) $(UUTILS_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 
-.PHONY: all base brush apk sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk python sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
-all: base apk brush sway sway-web ## build every image
+all: base apk brush python sway sway-web ## build every image
 
 base: ## build the base rootfs image (brush as /bin/sh, no busybox)
 	$(ENGINE) build $(PLATFORM_ARG) $(BASE_ARGS) -f Containerfile.base -t $(BASE_IMAGE) .
@@ -62,6 +64,10 @@ base: ## build the base rootfs image (brush as /bin/sh, no busybox)
 apk: ## build the base image with apk on board
 	$(ENGINE) build $(PLATFORM_ARG) $(BASE_ARGS) --build-arg WITH_APK=1 \
 	  -f Containerfile.base -t $(APK_IMAGE) .
+
+python: apk ## build the python image on top of the apk image
+	$(ENGINE) build $(PLATFORM_ARG) --build-arg APK_IMAGE=$(APK_IMAGE) $(PYTHON_ARGS) \
+	  -f Containerfile.python -t $(PYTHON_IMAGE) .
 
 sway: apk ## build the sway image on top of the apk image
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg APK_IMAGE=$(APK_IMAGE) $(SWAY_ARGS) \
@@ -100,7 +106,7 @@ test: ## verify the images behave (builds them first if needed)
 
 sizes: ## report image sizes
 	@$(ENGINE) images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
-	  | grep -E '$(firstword $(subst :, ,$(BASE_IMAGE)))|$(firstword $(subst :, ,$(BRUSH_IMAGE)))|$(firstword $(subst :, ,$(APK_IMAGE)))|$(firstword $(subst :, ,$(SWAY_IMAGE)))' || true
+	  | grep -E '$(firstword $(subst :, ,$(BASE_IMAGE)))|$(firstword $(subst :, ,$(BRUSH_IMAGE)))|$(firstword $(subst :, ,$(APK_IMAGE)))|$(firstword $(subst :, ,$(PYTHON_IMAGE)))|$(firstword $(subst :, ,$(SWAY_IMAGE)))' || true
 
 lock: base ## dump exact package versions from the built base image
 	@$(ENGINE) run --rm $(BASE_IMAGE) /bin/sh -c \
@@ -146,7 +152,7 @@ uutils-checksums: ## re-pin uutils apk checksums for MOONSHINE_VERSION/UUTILS_PK
 	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
 clean: ## remove built images
-	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
+	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(PYTHON_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
 
 _check-remote:
 	@git remote get-url $(REMOTE) > /dev/null 2>&1 || \
