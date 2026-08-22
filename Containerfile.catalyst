@@ -142,9 +142,7 @@ for path in glob.glob('/usr/lib/python*/site-packages/portage/util/_pty.py'):
 sys.exit(0 if ok else 1)
 PYFIX
 
-# Install Catalyst.  sys-fs/squashfs-tools (mksquashfs) is pulled in as a
-# dependency and is needed to create the portage snapshot below.
-# Catalyst is ~testing; pass ACCEPT_KEYWORDS inline so only this emerge call
+# Install Catalyst.  Catalyst is ~testing; pass ACCEPT_KEYWORDS inline so only this emerge call
 # sees the relaxed keyword, not the whole tree. It must follow SUBARCH --
 # hardcoding ~amd64 asks an arm64 build for the wrong keyword.
 #
@@ -179,7 +177,7 @@ SCRIPT
 # what is missing and leaves the seed's own versions alone.  USE requirements
 # (util-linux[python] above) are still honoured: emerge rebuilds a package
 # whose installed USE cannot satisfy a dependency atom.
-RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst
+RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst sys-fs/squashfs-tools-ng
 
 # Stage the seed tarball where Catalyst expects it.
 RUN mkdir -p /var/tmp/catalyst/builds/default
@@ -195,8 +193,8 @@ tree="$(awk -F'[= ]+' '/^[[:space:]]*location/ { print $2; exit }' \
 snap_dir=/var/tmp/catalyst/snapshots
 mkdir -p "$snap_dir"
 stamp="$(date -u +%Y%m%d)"
-mksquashfs "$tree" "${snap_dir}/portage-${stamp}.sqfs" \
-    -comp xz -noappend -no-progress >/dev/null
+gensquashfs --pack-dir "$tree" --compressor xz --force --quiet \
+    "${snap_dir}/portage-${stamp}.sqfs"
 SCRIPT
 
 LABEL org.opencontainers.image.title="moonshine-catalyst" \
