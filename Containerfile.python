@@ -1,0 +1,96 @@
+# moonshine python -- CPython on musl + brush
+#
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
+ARG APK_IMAGE=moonshine-apk:latest
+ARG ALPINE_TAG=3.24
+ARG MOONSHINE_VERSION=v0-rc2
+ARG UUTILS_PKGVER=0.10.0
+ARG UUTILS_PKGREL=3
+
+FROM docker.io/library/alpine:${ALPINE_TAG} AS pyfetch
+ARG MOONSHINE_VERSION
+ARG UUTILS_PKGVER
+ARG UUTILS_PKGREL
+RUN <<'SCRIPT'
+set -eu
+cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0jsW8N8Taync3kV83e9s
+BbrGY4UGkTmVE4ASeHi6CpNKWoSMdrRpEGJQv38BfzFSIXKm64NbmGIRE9PcYvNa
+s+nNxasAJu8TH+XY/ZNx3oUABpNEpy5UCNSGQmCLkKi7Cdk3WBikb5OPPAdRznqV
+bN0dEPFv+Xr2fXljDzHDdb98Zct6zbmvkkCpBuRuHzmybyCbsZFC1171azJB3k+N
+DMDFfGD51TX62l+mNjwgEaMTEwg+iwR5LroR63q27bQrIb4E2BqmGdPG67Tm1oK9
+ArB5zx5STq8iALRI8j7sJUo9mFHMtt7DkOv0Vxn4j/OAj62HK5Ie39PeCLOgDT1P
+2lM0tyv8jnd4v3PU5VYqnfrUjomqsTUIg61Xjy5WNTtH3nFMS/5Gk+kcrfGbKcMO
+haE+8h45QnyqEF6UWTjciBsvoPyrM82ni6t/8AIoGDe4GCZYdAD4RzwUmxdU2wOz
+EqsHkXDzx/3WbUAZF9f+5bYFu7/qe8qQXzwU1nPBJEvv1wvFj4qzh0ru6BIUvPfs
+t1PBAGis/Dkisefx0gyaNms3q7rBu8xRylRIDSIWZZGoPscCzLpZBIsud3SfFuLz
+61Rb9FKvWilEWBr5uq2tQCQehyh1oBHQXxYjb7EvojQ7tFdRmtY9jy1GQT2a1TNf
+LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
+-----END PUBLIC KEY-----
+KEY
+cat > /checksums.txt <<'SUMS'
+# sha256 of the uutils apks published at
+# https://github.com/bbusse/moonshine/releases
+# Regenerate with:
+#   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
+c903538307fc39490ea5b75788e2d226c8c0e9569eebcf58784ec916ed361c76  uutils-0.10.0-r3.aarch64-v0-rc2.apk
+3a4ade16a06e19c96af8c2b4c5514d42f196ad1338005507eed67434285a7871  uutils-0.10.0-r3.x86_64-v0-rc2.apk
+SUMS
+SCRIPT
+
+RUN <<'SCRIPT'
+set -eu
+: "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"
+
+RELEASE="https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}"
+ARCH="$(apk --print-arch)"
+
+asset="uutils-${UUTILS_PKGVER}-r${UUTILS_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk"
+expected="$(awk -v a="$asset" '$2 == a { print $1 }' /checksums.txt)"
+if [ -z "$expected" ]; then
+    echo "no checksum pinned for $asset" >&2
+    exit 1
+fi
+
+mkdir -p /packages
+echo "fetching $asset"
+wget -q -O /packages/uutils.apk "${RELEASE}/${asset}"
+echo "${expected}  /packages/uutils.apk" | sha256sum -c - >/dev/null
+echo "checksum ok"
+SCRIPT
+
+FROM ${APK_IMAGE}
+COPY --from=pyfetch /packages/ /tmp/packages/
+RUN apk add --no-cache /tmp/packages/uutils.apk && rm -rf /tmp/packages
+
+# python3 brings musl and libffi with it; py3-pip is what makes `python3 -m
+# venv` able to seed a venv at all. Anything a particular application links
+# against belongs in that application's image, not in this one
+ARG PYTHON_PKGS="python3 py3-pip"
+RUN apk add --no-cache ${PYTHON_PKGS}
+
+# Assert the interpreter actually runs, so a broken rootfs fails here rather
+# than in whatever gets built on top of this
+RUN python3 -c 'import sys, sysconfig, venv; print(sys.version)'
+
+# Regenerate the manifest the base image wrote, so it describes this image
+RUN apk info -v | sort > /etc/moonshine-manifest
+
+RUN <<'SCRIPT'
+set -eu
+if apk info -e busybox >/dev/null 2>&1; then
+    echo "busybox got pulled in -- check the dependency chain" >&2
+    exit 1
+fi
+SCRIPT
+
+LABEL org.opencontainers.image.title="moonshine-python" \
+      org.opencontainers.image.description="CPython on musl with brush as the only shell" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+
+CMD ["/usr/bin/python3"]
