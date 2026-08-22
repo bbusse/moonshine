@@ -78,7 +78,7 @@ RUN apk add --no-cache ${PYTHON_PKGS}
 RUN python3 -c 'import sys, sysconfig, venv; print(sys.version)'
 
 # Regenerate the manifest the base image wrote, so it describes this image
-RUN apk info -v | sort > /etc/moonshine-manifest
+RUN apk info -v > /etc/moonshine-manifest
 
 RUN <<'SCRIPT'
 set -eu
