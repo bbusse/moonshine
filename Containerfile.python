@@ -6,9 +6,9 @@
 
 ARG APK_IMAGE=moonshine-apk:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc2
+ARG MOONSHINE_VERSION=v0-rc3
 ARG UUTILS_PKGVER=0.10.0
-ARG UUTILS_PKGREL=3
+ARG UUTILS_PKGREL=4
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS pyfetch
 ARG MOONSHINE_VERSION
@@ -37,8 +37,8 @@ cat > /checksums.txt <<'SUMS'
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with:
 #   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
-c903538307fc39490ea5b75788e2d226c8c0e9569eebcf58784ec916ed361c76  uutils-0.10.0-r3.aarch64-v0-rc2.apk
-3a4ade16a06e19c96af8c2b4c5514d42f196ad1338005507eed67434285a7871  uutils-0.10.0-r3.x86_64-v0-rc2.apk
+99c4aff96d512668fa72523e4d59a5b2f49ec0207b40f5756dae709ea4519266  uutils-0.10.0-r4.aarch64-v0-rc3.apk
+38ace0f5764ab6f7f7bf8ac4503edb7be926ebec2d0fe7176677ecc289c049a4  uutils-0.10.0-r4.x86_64-v0-rc3.apk
 SUMS
 SCRIPT
 
