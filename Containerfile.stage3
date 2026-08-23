@@ -40,6 +40,7 @@ storedir = "/var/tmp/catalyst"
 distdir = "/var/cache/distfiles"
 jobs = ${JOBS}
 options = ["bindist"]
+compression_mode = "xz"
 CONF
 
 PROFILE="${PROFILE:-default/linux/${SUBARCH}/23.0}"
@@ -74,7 +75,11 @@ tarball=""
 for f in /var/tmp/catalyst/builds/default/stage3-*container*.tar.xz; do
     if [ -e "$f" ]; then tarball="$f"; fi
 done
-[ -n "$tarball" ] || { echo "Catalyst produced no stage3 tarball" >&2; exit 1; }
+if [ -z "$tarball" ]; then
+    echo "Catalyst produced no stage3 tarball; builds dir holds:" >&2
+    ls -l /var/tmp/catalyst/builds/default/ >&2
+    exit 1
+fi
 cp "$tarball" /stage3.tar.xz
 SCRIPT
 
