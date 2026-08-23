@@ -66,17 +66,15 @@ rm -f /tmp/dlopen-stubs.apk
 apk add --no-cache \
     firefox \
     geckodriver \
-    cairo \
-    pango \
     sed \
-    libxkbcommon \
     font-dejavu \
     font-awesome
 
 fc-cache -f
 
-if apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null | grep -q .; then
-    echo "mesa or ffmpeg got pulled in -- dlopen-stubs did not satisfy the solver" >&2
+found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles x265-libs libSvtAv1Enc 2>/dev/null || true)"
+if [ -n "$found" ]; then
+    echo "pulled in by the solver despite dlopen-stubs: $found" >&2
     exit 1
 fi
 

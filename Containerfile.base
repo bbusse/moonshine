@@ -24,7 +24,7 @@ ARG BRUSH_PKGREL=0
 # none   = brush builtins only
 # uutils = add uutils, this repo's cut-down build of the Rust coreutils --
 #          one multicall binary holding only the utilities listed in
-#          uutils/apkbuild/APKBUILD, not Alpine's ~100-utility package.
+#          uutils/apkbuild/APKBUILD, not Alpine's ~100-utility package
 ARG UTILS=none
 
 # Which moonshine release to take uutils from, and the pkgver/pkgrel it was
@@ -75,7 +75,7 @@ apk add --no-cache --initdb --root "$ROOT" \
 SCRIPT
 
 # The filesystem layout alpine-baselayout would have provided, minus its
-# /bin/sh dependency on busybox.
+# /bin/sh dependency on busybox
 RUN <<'SCRIPT'
 set -eu
 ROOT="${ROOT:?}"
@@ -98,34 +98,6 @@ chmod 0555 "$ROOT/var/empty"
 # even when the link is already there (alpine-baselayout-data ships /etc/mtab)
 [ -L "$ROOT/var/run" ] || ln -s /run "$ROOT/var/run"
 [ -L "$ROOT/etc/mtab" ] || ln -s /proc/mounts "$ROOT/etc/mtab"
-SCRIPT
-
-# Identify the image as moonshine rather than as the Alpine it was assembled
-# from. /etc/os-release belongs to alpine-release, which this rootfs does not
-# install, so there is nothing here to overwrite and no apk-owned file to
-# diverge from.
-#
-# os-release(5): the canonical copy lives at /usr/lib/os-release with
-# /etc/os-release a relative symlink to it, which is how Alpine ships it too.
-# VERSION_ID drops the leading "v" of the release tag -- the spec asks for the
-# version alone, and Alpine does the same (VERSION_ID=3.24.1, branch v3.24).
-RUN <<'SCRIPT'
-set -eu
-ROOT="${ROOT:?}"
-VERSION_ID="${MOONSHINE_VERSION#v}"
-
-cat > "$ROOT/usr/lib/os-release" <<RELEASE
-NAME="moonshine"
-ID=moonshine
-ID_LIKE=alpine
-VERSION="${VERSION_ID}"
-VERSION_ID="${VERSION_ID}"
-PRETTY_NAME="moonshine ${VERSION_ID}"
-HOME_URL="https://github.com/bbusse/moonshine"
-BUG_REPORT_URL="https://github.com/bbusse/moonshine/issues"
-RELEASE
-
-ln -sfn ../usr/lib/os-release "$ROOT/etc/os-release"
 SCRIPT
 
 # Repositories and cache, so apk works inside the image
@@ -220,7 +192,7 @@ rm -f /brush.apk
 SCRIPT
 
 # Build and install brush-binsh, the package that declares brush as the
-# provider of /bin/sh.
+# provider of /bin/sh
 RUN <<'SCRIPT'
 set -eu
 VERSION="${BRUSH_VERSION:?}"
@@ -280,7 +252,7 @@ apk add --no-cache --root "$ROOT" --keys-dir /etc/apk/keys "$pkg"
     || { echo "brush-binsh did not create /bin/sh" >&2; exit 1; }
 SCRIPT
 
-# Make brush the system shell in the rootfs.
+# Make brush the system shell in the rootfs
 RUN <<'SCRIPT'
 set -eu
 BRUSH=/usr/bin/brush
@@ -306,7 +278,7 @@ SCRIPT
 # uutils, when asked for. Signed by the same apk-releases key as brush -- this
 # package is built and released by this repo's own CI (see
 # .github/workflows/build-apk.yml), so the asset name carries both its
-# pkgver/pkgrel and the moonshine release it was published under.
+# pkgver/pkgrel and the moonshine release it was published under
 RUN <<'SCRIPT'
 set -eu
 if [ "$UTILS" != uutils ]; then exit 0; fi
@@ -324,6 +296,34 @@ rm -f /uutils.apk
 # stops making them, every utility silently disappears from PATH.
 [ "$(readlink "$ROOT/usr/bin/ls")" = coreutils ] \
     || { echo "uutils installed but /usr/bin/ls is not a coreutils symlink" >&2; exit 1; }
+SCRIPT
+
+# Identify the image as moonshine rather than as the Alpine it was assembled
+# from. /etc/os-release belongs to alpine-release, which this rootfs does not
+# install, so there is nothing here to overwrite and no apk-owned file to
+# diverge from.
+#
+# os-release(5): the canonical copy lives at /usr/lib/os-release with
+# /etc/os-release a relative symlink to it, which is how Alpine ships it too.
+# VERSION_ID drops the leading "v" of the release tag -- the spec asks for the
+# version alone, and Alpine does the same (VERSION_ID=3.24.1, branch v3.24)
+RUN <<'SCRIPT'
+set -eu
+ROOT="${ROOT:?}"
+VERSION_ID="${MOONSHINE_VERSION#v}"
+
+cat > "$ROOT/usr/lib/os-release" <<RELEASE
+NAME="moonshine"
+ID=moonshine
+ID_LIKE=alpine
+VERSION="${VERSION_ID}"
+VERSION_ID="${VERSION_ID}"
+PRETTY_NAME="moonshine ${VERSION_ID}"
+HOME_URL="https://github.com/bbusse/moonshine"
+BUG_REPORT_URL="https://github.com/bbusse/moonshine/issues"
+RELEASE
+
+ln -sfn ../usr/lib/os-release "$ROOT/etc/os-release"
 SCRIPT
 
 RUN <<'SCRIPT'

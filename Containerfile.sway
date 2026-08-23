@@ -50,7 +50,7 @@ SCRIPT
 # Same two checks as Containerfile.base: a sha256 pin plus apk's own signature
 # verification. Both packages are built and released by this repo's own CI, so
 # each asset name carries its pkgver/pkgrel and the moonshine release it was
-# published under.
+# published under
 RUN <<'SCRIPT'
 set -eu
 : "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"
@@ -82,16 +82,16 @@ SCRIPT
 FROM ${APK_IMAGE}
 
 # uutils is not optional here the way it is in the base image: sway shells out
-# (it calls uname during startup), and sway-smoke needs sleep and cat.
+# (it calls uname during startup), and sway-smoke needs sleep and cat
 COPY --from=swayfetch /packages/ /tmp/packages/
 # uutils first and on its own: package install scripts run under brush, which
 # has no coreutils, and on 3.24 libglycin's post-install calls cat. In a single
-# transaction apk may run that script before uutils is unpacked.
+# transaction apk may run that script before uutils is unpacked
 RUN apk add --no-cache /tmp/packages/uutils.apk
 RUN apk add --no-cache /tmp/packages/sway-pixman.apk && rm -rf /tmp/packages
 
 # Config and smoke script inline; by this point uutils is installed, so there
-# is a mkdir and a chmod to call.
+# is a mkdir and a chmod to call
 RUN <<'SCRIPT'
 set -eu
 mkdir -p /etc/sway/config.d /run/user/0

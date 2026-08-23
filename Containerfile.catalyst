@@ -38,6 +38,7 @@ ARG STAGE1=
 ARG SUBARCH=amd64
 ARG VARIANT=openrc
 ARG JOBS=4
+ARG SNAPSHOT_DATE=
 
 # Seed fetcher: resolves /seed.tar.xz from either the build context or
 # Gentoo mirrors.
@@ -82,6 +83,7 @@ COPY --from=extractor /stage1root/ /
 
 ARG SUBARCH
 ARG JOBS
+ARG SNAPSHOT_DATE
 
 # Portage sandbox features that require kernel namespaces do not work inside
 # a container: ipc-sandbox and pid-sandbox each create a new namespace per
@@ -100,7 +102,14 @@ SCRIPT
 
 # Fetch the portage tree.  Portage the tool is in the seed; only the ebuilds
 # tree is missing.  emerge-webrsync downloads a dated snapshot and GPG-verifies it
-RUN emerge-webrsync --quiet
+RUN <<'SCRIPT'
+set -eu
+if [ -n "${SNAPSHOT_DATE:-}" ]; then
+    emerge-webrsync --quiet --revert="${SNAPSHOT_DATE}"
+else
+    emerge-webrsync --quiet
+fi
+SCRIPT
 
 # In rootless containers, os.openpty() succeeds but termios.tcgetattr(slave_fd)
 # returns ENOTTY (errno 25): the devpts mount is present but the slave fd does
@@ -169,6 +178,8 @@ cat > /etc/portage/package.mask/catalyst <<MASK
 app-cdr/cdrtools
 MASK
 SCRIPT
+
+RUN emerge --quiet --oneshot --update sys-apps/portage
 
 # No --update --deep here.  Those walk Catalyst's whole transitive dependency
 # graph and bring every package in it up to the freshly-synced snapshot, which
