@@ -10,13 +10,14 @@
 # running tools inside them -- there are no tools. Instead each image is
 # exported and inspected from a throwaway Alpine helper, piped over stdin so
 # no bind mount (and no podman-machine shared path) is needed. Runtime
-# assertions run in the image itself, using brush builtins only.
+# assertions run in the image itself, using brush builtins only
 
 ENGINE="${ENGINE:-podman}"
 BASE_IMAGE="${BASE_IMAGE:-moonshine-base:musl}"
 BRUSH_IMAGE="${BRUSH_IMAGE:-moonshine-brush:latest}"
 APK_IMAGE="${APK_IMAGE:-moonshine-apk:latest}"
 SWAY_IMAGE="${SWAY_IMAGE:-moonshine-sway:latest}"
+SWAY_WEB_IMAGE="${SWAY_WEB_IMAGE:-moonshine-sway-web:latest}"
 STAGE3_IMAGE="${STAGE3_IMAGE:-gentoo-stage3:local}"
 UTILS="${UTILS:-none}"
 HELPER="${HELPER:-docker.io/library/alpine:3.24}"
@@ -25,25 +26,26 @@ HELPER="${HELPER:-docker.io/library/alpine:3.24}"
 # are real container builds (sway-pixman compiles wlroots+sway from source,
 # minutes not milliseconds), and no test below mutates an image, so sharing
 # one build across the whole suite is both correct and the only way this
-# finishes in reasonable time.
+# finishes in reasonable time
 setup_suite() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     # MOONSHINE_VERSION is only passed through when the caller set it:
     # `make VAR=` on the command line overrides the Makefile's `?=` default
     # with an empty string, which would leave the sway fetch with no release
-    # to pull from. CI runs bash_unit directly, with no such variable set.
+    # to pull from. CI runs bash_unit directly, with no such variable set
     local -a args=(
         ENGINE="$ENGINE" BASE_IMAGE="$BASE_IMAGE" APK_IMAGE="$APK_IMAGE"
         BRUSH_IMAGE="$BRUSH_IMAGE" SWAY_IMAGE="$SWAY_IMAGE" UTILS="$UTILS"
+        SWAY_WEB_IMAGE="$SWAY_WEB_IMAGE"
     )
     [ -n "${MOONSHINE_VERSION:-}" ] && args+=(MOONSHINE_VERSION="$MOONSHINE_VERSION")
 
-    make -C "$root" base apk brush sway "${args[@]}"
+    make -C "$root" base apk brush sway sway-web "${args[@]}"
 }
 
 # Unpack an image's filesystem into /r in a helper container and run a script
-# against it. $1 = image, $2 = sh script evaluated with cwd at the root.
+# against it. $1 = image, $2 = sh script evaluated with cwd at the root
 fs() {
     local image="$1" script="$2" cid rc=0
     cid="$($ENGINE create --quiet "$image" 2>/dev/null)"
@@ -62,6 +64,7 @@ base_fs()  { fs "$BASE_IMAGE" "$1"; }
 brush_fs() { fs "$BRUSH_IMAGE" "$1"; }
 apk_fs()   { fs "$APK_IMAGE" "$1"; }
 sway_fs()  { fs "$SWAY_IMAGE" "$1"; }
+sway_web_fs() { fs "$SWAY_WEB_IMAGE" "$1"; }
 run_in()   { $ENGINE run --rm "$@"; }
 
 test_musl_loader_present() {
@@ -84,7 +87,7 @@ test_brush_in_apk_db() {
 }
 # /bin/sh must be package-owned, not a bare symlink: apk resolves /bin/sh
 # against metadata, so an unowned link lets anything needing a shell drag
-# busybox-binsh back in and take it over.
+# busybox-binsh back in and take it over
 test_brush_binsh_in_apk_db() {
     base_fs 'grep -q "^P:brush-binsh$" lib/apk/db/installed' || fail "brush-binsh is not in the apk db"
 }
@@ -138,7 +141,7 @@ test_release_key_kept() {
     base_fs 'test -s etc/apk/keys/apk-releases.rsa.pub' || fail "release signing key missing"
 }
 
-# Runtime: brush builtins only -- no external command exists to lean on.
+# Runtime: brush builtins only -- no external command exists to lean on
 test_bin_sh_runs() {
     run_in "$BASE_IMAGE" /bin/sh -c 'exit 0' || fail "/bin/sh did not run"
 }
@@ -162,7 +165,7 @@ test_no_external_commands_by_default() {
 # The two tests below read the Containerfiles rather than the images. The
 # signing key and the checksum pins are inlined in more than one of them, which
 # is what keeps each file buildable from a checkout of itself alone -- the cost
-# of that property is copies, and copies drift.
+# of that property is copies, and copies drift
 _repo_root() { (cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd); }
 
 test_signing_key_is_the_same_in_every_containerfile() {
@@ -172,16 +175,18 @@ test_signing_key_is_the_same_in_every_containerfile() {
     base="$(_key Containerfile.base)"
     brush="$(_key Containerfile.brush)"
     sway="$(_key Containerfile.sway)"
-    # Without this, three empty strings would compare equal and assert nothing.
+    python="$(_key Containerfile.python)"
+    # Without this, three empty strings would compare equal and assert nothing
     [ -n "$base" ] || fail "no apk-releases key found in Containerfile.base"
     [ "$base" = "$brush" ] || fail "apk-releases key differs: Containerfile.base vs Containerfile.brush"
     [ "$base" = "$sway" ]  || fail "apk-releases key differs: Containerfile.base vs Containerfile.sway"
+    [ "$base" = "$python" ] || fail "apk-releases key differs: Containerfile.base vs Containerfile.python"
 }
 
 test_shared_checksum_pins_agree() {
     # brush is pinned in base and brush; uutils in base and sway. The Makefile
     # prints the lines but pasting them into both files is manual, so a
-    # half-finished update is the likely failure.
+    # half-finished update is the likely failure
     local root
     root="$(_repo_root)"
     _pins() { grep -E "^[a-f0-9]{64}  .*$2" "$root/$1" | sort; }
@@ -191,19 +196,21 @@ test_shared_checksum_pins_agree() {
     [ -n "$(_pins Containerfile.base uutils)" ] || fail "no uutils pins in Containerfile.base"
     [ "$(_pins Containerfile.base uutils)" = "$(_pins Containerfile.sway uutils)" ] \
         || fail "uutils pins differ between Containerfile.base and Containerfile.sway"
+    [ "$(_pins Containerfile.base uutils)" = "$(_pins Containerfile.python uutils)" ] \
+        || fail "uutils pins differ between Containerfile.base and Containerfile.python"
 }
 
 test_os_release_identifies_moonshine() {
     # os-release(5) wants the canonical file in /usr/lib with /etc/os-release a
     # relative symlink to it -- assert the arrangement, not just the contents,
-    # since a plain file in /etc would read identically today and drift later.
+    # since a plain file in /etc would read identically today and drift later
     base_fs 'test "$(readlink etc/os-release)" = ../usr/lib/os-release' \
         || fail "/etc/os-release is not a relative symlink to ../usr/lib/os-release"
     base_fs 'test -f usr/lib/os-release' || fail "/usr/lib/os-release missing"
 }
 test_os_release_is_sourceable_and_valid() {
     # The file is defined as shell-sourceable, and ID/VERSION_ID are restricted
-    # to [a-z0-9._-]. Sourced in the image itself, using brush builtins only.
+    # to [a-z0-9._-]. Sourced in the image itself, using brush builtins only
     run_in "$BASE_IMAGE" /bin/sh -c '
         . /etc/os-release
         [ "$ID" = moonshine ] || exit 1
@@ -221,7 +228,7 @@ test_uutils_is_one_multicall_binary() {
     # Every utility is a symlink to the single coreutils binary. Separate
     # binaries would work identically at the prompt and cost a copy of the
     # Rust runtime and uucore apiece, so assert on the arrangement, not just
-    # on the behaviour.
+    # on the behaviour
     base_fs 'test "$(readlink usr/bin/ls)" = coreutils' \
         || fail "usr/bin/ls is not a symlink to the coreutils multicall binary"
     base_fs 'test -f usr/bin/coreutils && test -x usr/bin/coreutils' \
@@ -233,11 +240,11 @@ test_uutils_holds_only_the_selected_utils() {
     # feat_common_core, so utilities nobody asked for are absent rather than
     # merely unused. factor and base32 are in upstream's default set and not
     # in _utils, so their presence would mean the feature selection silently
-    # stopped applying.
+    # stopped applying
     base_fs 'test ! -e usr/bin/factor && test ! -e usr/bin/base32' \
         || fail "utilities outside _utils are present -- feature selection is not being applied"
     # No grep in here -- that is the whole point of the image. Word-splitting
-    # the --list output on IFS and comparing with test is brush-builtin only.
+    # the --list output on IFS and comparing with test is brush-builtin only
     run_in "$BASE_IMAGE" /bin/sh -c \
         'for u in $(/usr/bin/coreutils --list); do [ "$u" = ls ] && exit 0; done; exit 1' \
         || fail "coreutils --list does not report ls"
@@ -257,7 +264,7 @@ test_alpine_signing_keys_present() {
     # releases (3.22 shipped 5, 3.24 ships 2), so anything higher than 1 is an
     # assertion about Alpine's key rotation rather than about this image.
     # That apk can actually verify a signature is covered by
-    # test_apk_installs_a_package.
+    # test_apk_installs_a_package
     apk_fs 'test "$(ls etc/apk/keys | grep -c alpine-devel)" -ge 1' || fail "alpine signing keys missing"
 }
 test_apk_runs() {
@@ -267,7 +274,7 @@ test_apk_installs_a_package() {
     run_in "$APK_IMAGE" /bin/sh -c 'apk add --no-cache libgcc' || fail "apk failed to install a package"
 }
 # The regression this guards: before brush-binsh existed, this pulled in
-# busybox and busybox-binsh and left /bin/sh pointing at busybox.
+# busybox and busybox-binsh and left /bin/sh pointing at busybox
 test_install_keeps_brush_as_sh() {
     $ENGINE run --rm "$APK_IMAGE" /bin/sh -c 'apk add --no-cache ca-certificates' 2>&1 | grep -q busybox \
         && fail "installing a package pulled in busybox"
@@ -279,7 +286,7 @@ test_sway_installed() {
 }
 # The point of building our own: Alpine's sway drags mesa + llvm20-libs in
 # through wlroots' GLES/Vulkan renderers, 245 MB that never renders anything
-# under WLR_RENDERER=pixman.
+# under WLR_RENDERER=pixman
 test_sway_no_mesa_llvm_vulkan_pkgs() {
     sway_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "mesa|llvm|vulkan|spirv"' \
         || fail "found a mesa/llvm/vulkan package"
@@ -308,13 +315,49 @@ test_sway_coreutils_available() {
 }
 # Alpine ships sway with cap_sys_nice=ep, and a file capability outside the
 # container's bounding set makes execve fail with EPERM. The build strips it,
-# so this must work with no --cap-add at all.
+# so this must work with no --cap-add at all
 test_sway_runs_without_extra_caps() {
     run_in "$SWAY_IMAGE" /usr/bin/sway --version || fail "sway did not run without extra capabilities"
 }
 test_sway_comes_up_headless() {
     $ENGINE run --rm "$SWAY_IMAGE" /bin/sh /usr/local/bin/sway-smoke | grep -q '"width": 1280' \
         || fail "sway did not come up headless at the expected size"
+}
+
+test_sway_web_no_mesa_llvm_pkgs() {
+    sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "mesa|llvm|vulkan|spirv"' \
+        || fail "found a mesa/llvm/vulkan package in the sway-web image"
+}
+test_sway_web_no_libegl_libgl_files() {
+    sway_web_fs '! find . \( -name "libEGL*" -o -name "libGL.so*" -o -name "libgallium*" -o -name "libLLVM*" \) | grep -q .' \
+        || fail "found a libEGL/libGL/libgallium/libLLVM file in the sway-web image"
+}
+test_sway_web_no_ffmpeg_encoders() {
+    sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "^P:(ffmpeg|x26[45]-libs|libSvtAv1|rav1e)"' \
+        || fail "found an ffmpeg/encoder package in the sway-web image"
+}
+test_sway_web_dlopen_stubs_installed() {
+    sway_web_fs 'grep -q "^P:dlopen-stubs$" lib/apk/db/installed' \
+        || fail "dlopen-stubs is not in the apk db"
+}
+test_sway_web_firefox_runs() {
+    run_in --entrypoint /usr/bin/firefox "$SWAY_WEB_IMAGE" --version | grep -qi firefox \
+        || fail "firefox did not report a version"
+}
+test_sway_web_geckodriver_present() {
+    sway_web_fs 'test -x usr/bin/geckodriver' || fail "geckodriver missing"
+}
+test_sway_web_has_a_font() {
+    sway_web_fs 'find usr/share/fonts -name "*.ttf" | grep -q .' \
+        || fail "no ttf font in the sway-web image"
+}
+test_sway_web_xwayland_disabled() {
+    sway_web_fs 'grep -q "xwayland disable" etc/sway/config.d/xwayland' \
+        || fail "xwayland is not disabled in the sway-web image"
+}
+test_sway_web_still_has_no_busybox() {
+    sway_web_fs '! find . -name "busybox*" -print | grep -q .' \
+        || fail "found a busybox binary in the sway-web image"
 }
 
 test_brush_runs_with_no_libc() {
@@ -329,7 +372,7 @@ test_brush_image_is_brush_and_tmp_only() {
 
 # stage3 tests -- skipped unless the image has been built with `make catalyst`.
 # The build requires a stage1 tarball and --privileged, so it is not wired into
-# setup_suite; run `make catalyst` first, then re-run the tests.
+# setup_suite; run `make catalyst` first, then re-run the tests
 stage3_fs() { fs "$STAGE3_IMAGE" "$1"; }
 _stage3_available() { $ENGINE image inspect "$STAGE3_IMAGE" >/dev/null 2>&1; }
 
@@ -346,7 +389,7 @@ test_stage3_gentoo_release_present() {
     stage3_fs 'test -s etc/gentoo-release' || fail "/etc/gentoo-release missing or empty"
 }
 # The portage tree and distfiles are stripped after the build to keep the image
-# lean; consumers sync them on first use.
+# lean; consumers sync them on first use
 test_stage3_portage_tree_absent() {
     _stage3_available || return 0
     stage3_fs '! test -d var/db/repos/gentoo' || fail "portage tree was not removed from stage3"
