@@ -6,7 +6,7 @@
 ARG SWAY_IMAGE=moonshine-sway:latest
 ARG ALPINE_TAG=3.24
 
-FROM docker.io/library/alpine:${ALPINE_TAG} AS glstub
+FROM docker.io/library/alpine:${ALPINE_TAG} AS dlopenstubs
 RUN <<'SCRIPT'
 set -eu
 apk add --no-cache abuild
@@ -23,45 +23,45 @@ PACKAGER_PRIVKEY="$KEY"
 PACKAGER="moonshine <none@localhost>"
 CONF
 
-W=/tmp/aports/moonshine/gl-stub
+W=/tmp/aports/moonshine/dlopen-stubs
 mkdir -p "$W"
 cat > "$W/APKBUILD" <<'APKBUILD'
-pkgname=gl-stub
+pkgname=dlopen-stubs
 pkgver=1
 pkgrel=0
-pkgdesc="Claims so:libEGL.so.1 and so:libGL.so.1 for dlopen-only consumers"
+pkgdesc="Claims the libEGL, libGL and libavcodec deps firefox only dlopens"
 url="https://github.com/bbusse/moonshine"
 arch="all"
 license="BSD-3-Clause"
-provides="so:libEGL.so.1=1 so:libGL.so.1=1"
+provides="so:libEGL.so.1=1 so:libGL.so.1=1 ffmpeg-libavcodec=1"
 provider_priority=1
 source=""
 options="!check !strip !tracedeps !archcheck !dbg"
 
 package() {
-    install -Dm644 /dev/null "$pkgdir"/usr/share/gl-stub/.keep
+    install -Dm644 /dev/null "$pkgdir"/usr/share/dlopen-stubs/.keep
 }
 APKBUILD
 
 chown -R builder:abuild "$W" /home/builder
 su builder -c "cd $W && abuild -d"
 
-pkg="$(find /home/builder/packages -name 'gl-stub-*.apk' | head -n 1)"
-[ -n "$pkg" ] || { echo "gl-stub build produced nothing" >&2; exit 1; }
+pkg="$(find /home/builder/packages -name 'dlopen-stubs-*.apk' | head -n 1)"
+[ -n "$pkg" ] || { echo "dlopen-stubs build produced nothing" >&2; exit 1; }
 mkdir -p /out
-cp "$pkg" /out/gl-stub.apk
+cp "$pkg" /out/dlopen-stubs.apk
 cp "${KEY}.pub" /out/moonshine-local.rsa.pub
 SCRIPT
 
 FROM ${SWAY_IMAGE}
 
-COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
-COPY --from=glstub /out/gl-stub.apk /tmp/gl-stub.apk
+COPY --from=dlopenstubs /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
+COPY --from=dlopenstubs /out/dlopen-stubs.apk /tmp/dlopen-stubs.apk
 
 RUN <<'SCRIPT'
 set -eu
-apk add --no-cache /tmp/gl-stub.apk
-rm -f /tmp/gl-stub.apk
+apk add --no-cache /tmp/dlopen-stubs.apk
+rm -f /tmp/dlopen-stubs.apk
 
 apk add --no-cache \
     firefox \
@@ -71,15 +71,12 @@ apk add --no-cache \
     sed \
     libxkbcommon \
     font-dejavu \
-    font-noto \
-    font-terminus \
-    font-inconsolata \
     font-awesome
 
 fc-cache -f
 
-if apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs 2>/dev/null | grep -q .; then
-    echo "mesa got pulled in -- gl-stub did not satisfy the solver" >&2
+if apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null | grep -q .; then
+    echo "mesa or ffmpeg got pulled in -- dlopen-stubs did not satisfy the solver" >&2
     exit 1
 fi
 
