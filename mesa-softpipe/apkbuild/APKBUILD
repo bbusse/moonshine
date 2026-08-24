@@ -1,0 +1,67 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=mesa-softpipe
+pkgver=26.1.6
+pkgrel=0
+pkgdesc="mesa EGL/GLES/gbm for software rendering only, built without llvm"
+url="https://www.mesa3d.org"
+arch="all"
+license="MIT"
+# Alpine's mesa builds the llvmpipe gallium driver, which links llvm-libs:
+# 167 MB for a software path softpipe covers in 20. They own the same paths
+# and the same sonames, so only one of the two can be installed
+depends="!mesa !mesa-egl !mesa-gles !mesa-gbm"
+subpackages="$pkgname-dev"
+makedepends="
+	bison
+	expat-dev
+	flex
+	libdrm-dev
+	libxml2-dev
+	linux-headers
+	meson
+	ninja
+	pkgconf
+	py3-mako
+	py3-packaging
+	py3-yaml
+	python3
+	wayland-dev
+	wayland-protocols
+	zlib-dev
+	zstd-dev
+	"
+source="https://archive.mesa3d.org/mesa-$pkgver.tar.xz"
+builddir="$srcdir/mesa-$pkgver"
+options="!check"
+
+build() {
+	# softpipe is the only gallium driver that does not link llvm -- llvmpipe
+	# JITs its shaders through it, which is where the 167 MB goes. glx is what
+	# would build libGL.so.1, and there is no X here to use it
+	abuild-meson \
+		-Dplatforms=wayland \
+		-Dgallium-drivers=softpipe \
+		-Dvulkan-drivers= \
+		-Dvideo-codecs= \
+		-Dglx=disabled \
+		-Degl=enabled \
+		-Dgles1=disabled \
+		-Dgles2=enabled \
+		-Dopengl=true \
+		-Dgbm=enabled \
+		-Dllvm=disabled \
+		-Dgallium-extra-hud=false \
+		-Dlmsensors=disabled \
+		-Dvalgrind=disabled \
+		-Dlibunwind=disabled \
+		. output
+	meson compile -C output -j "${JOBS:-1}"
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+}
+sha512sums="
+6746b73f5b87e8ff3723eee586b4b5f033dbe6d13cd0309d743b7fa484c350268859ec8ff21aadcbca7a04070cdaa7828146dd28dde4b1935bb879891d687f0b  mesa-26.1.6.tar.xz
+"
