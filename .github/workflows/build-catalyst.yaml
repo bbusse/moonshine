@@ -1,0 +1,67 @@
+---
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Build Catalyst Container
+
+# Unconditional: stage3 (dispatch-only) depends on this image being
+# present in ghcr.io, so it must always be built and pushed on every push
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      snapshot_date:
+        description: >-
+          Portage snapshot to sync, as yyyymmdd. When omitted the current
+          snapshot is fetched, so the same recipe can yield a different
+          image on a different day.
+        required: false
+        default: ''
+
+jobs:
+  # Deliberately not container-build-push.yml: its build_args are a static
+  # string, so JOBS cannot be $(nproc), and it exposes no job timeout.
+  # Catalyst emerges perl, util-linux and Catalyst itself from source, so
+  # both matter here. The per-arch image names (moonshine-catalyst-amd64,
+  # moonshine-catalyst-arm64) follow the same convention as gentoo-build
+  build-catalyst:
+    name: Build catalyst (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to ghcr
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | podman login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Build catalyst
+        run: |
+          podman build \
+            --build-arg SUBARCH=${{ matrix.arch }} \
+            --build-arg JOBS="$(nproc)" \
+            --build-arg SNAPSHOT_DATE='${{ inputs.snapshot_date }}' \
+            -f Containerfile.catalyst \
+            -t ghcr.io/bbusse/moonshine-catalyst-${{ matrix.arch }}:latest .
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: podman push ghcr.io/bbusse/moonshine-catalyst-${{ matrix.arch }}:latest
