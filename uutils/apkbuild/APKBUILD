@@ -8,14 +8,14 @@ url="https://github.com/uutils/coreutils"
 arch="all"
 license="MIT"
 # Alpine's uutils-coreutils compiles in every utility (~100) and owns the same
-# paths in /usr/bin. Ours is the same upstream, cut down to _utils below.
+# paths in /usr/bin. Ours is the same upstream, cut down to _utils below
 depends="!uutils-coreutils"
 makedepends="cargo"
 source="uutils-coreutils-$pkgver.tar.gz::https://github.com/uutils/coreutils/archive/refs/tags/$pkgver.tar.gz"
 builddir="$srcdir/coreutils-$pkgver"
 # The test suite wants GNU's, plus a checkout of it; nothing here is validated
 # by running it. !tracedeps is deliberately NOT set: the so-deps apk records
-# are what turn a libc mismatch into a resolution error instead of a crash.
+# are what turn a libc mismatch into a resolution error instead of a crash
 options="!check"
 
 # The utilities compiled into the binary. One per line, alphabetical -- adding
@@ -29,7 +29,7 @@ options="!check"
 #
 # uptime reports "0 users" here and always will: musl implements the utmpx
 # functions as stubs, so there is no login database to count. The uptime and
-# load-average figures come from /proc and are correct.
+# load-average figures come from /proc and are correct
 _utils="
 	cat
 	chmod
@@ -65,7 +65,7 @@ build() {
 	# members, so building the workspace compiles every utility crate whatever
 	# --features says. Only the root package honours the feature selection.
 	#
-	# --no-default-features drops feat_common_core, which is 78 utilities.
+	# --no-default-features drops feat_common_core, which is 78 utilities
 	cargo build -p coreutils --release --frozen \
 		--no-default-features --features "$(echo $_utils)"
 }
@@ -77,7 +77,7 @@ package() {
 	# One binary plus a symlink per utility, the busybox arrangement: separate
 	# binaries would repeat the Rust runtime and uucore in every one of them.
 	# The list comes from the binary itself rather than from $_utils, so the
-	# links cannot drift from what was actually compiled in.
+	# links cannot drift from what was actually compiled in
 	"$builddir"/target/release/coreutils --list | while read -r _u; do
 		[ -n "$_u" ] || continue
 		ln -s coreutils "$pkgdir"/usr/bin/"$_u"
