@@ -11,7 +11,7 @@ license="MIT"
 # Alpine's sway is compiled against a wlroots that has the GLES and Vulkan
 # renderers enabled, and those link libEGL unconditionally -- which drags in
 # mesa and llvm-libs, 245 MB, whether or not anything ever renders with them.
-# The two cannot coexist: they own the same paths.
+# The two cannot coexist: they own the same paths
 depends="!sway"
 subpackages="$pkgname-doc $pkgname-bash-completion $pkgname-fish-completion
 	$pkgname-zsh-completion"
@@ -48,7 +48,7 @@ build() {
 	# meson rejects -Dbackends=headless and -Dallocators=shm as invalid.
 	#
 	# Built static and installed into $srcdir, so nothing ships a
-	# libwlroots-0.20.so that would collide with Alpine's own.
+	# libwlroots-0.20.so that would collide with Alpine's own
 	cd "$srcdir/wlroots-$_wlroots"
 	meson setup output \
 		--default-library=static \
