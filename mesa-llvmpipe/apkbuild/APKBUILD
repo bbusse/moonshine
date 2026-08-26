@@ -1,0 +1,72 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=mesa-llvmpipe
+pkgver=26.1.6
+pkgrel=0
+pkgdesc="mesa EGL/GLES/gbm for software rendering only, llvmpipe with llvm linked in"
+url="https://www.mesa3d.org"
+arch="all"
+license="MIT"
+# The other half of the pair: same sonames and paths as mesa-softpipe and as
+# Alpine's mesa, so exactly one of the three can be installed. Alpine's build
+# reaches llvmpipe through a shared llvm22-libs, 167 MB of it; linking llvm in
+# statically drops that to 78 MB, of which 63 MB is what softpipe saves again
+depends="!mesa !mesa-egl !mesa-gles !mesa-gbm !mesa-softpipe"
+subpackages="$pkgname-dev"
+makedepends="
+	bison
+	expat-dev
+	flex
+	libdrm-dev
+	libxml2-dev
+	linux-headers
+	llvm22-dev
+	llvm22-static
+	meson
+	ninja
+	pkgconf
+	py3-mako
+	py3-packaging
+	py3-yaml
+	python3
+	wayland-dev
+	wayland-protocols
+	zlib-dev
+	zstd-dev
+	"
+source="https://archive.mesa3d.org/mesa-$pkgver.tar.xz"
+builddir="$srcdir/mesa-$pkgver"
+options="!check"
+
+build() {
+	# llvmpipe JITs shaders through llvm and reaches OpenGL 4.6, where softpipe
+	# interprets them and stops at 3.3. wgpu needs the compute shaders that
+	# arrived in 4.3, so this is the build that runs it. shared-llvm=disabled
+	# is what keeps llvm22-libs out of the runtime dependencies
+	abuild-meson \
+		-Dplatforms=wayland \
+		-Dgallium-drivers=llvmpipe \
+		-Dvulkan-drivers= \
+		-Dvideo-codecs= \
+		-Dglx=disabled \
+		-Degl=enabled \
+		-Dgles1=disabled \
+		-Dgles2=enabled \
+		-Dopengl=true \
+		-Dgbm=enabled \
+		-Dllvm=enabled \
+		-Dshared-llvm=disabled \
+		-Dgallium-extra-hud=false \
+		-Dlmsensors=disabled \
+		-Dvalgrind=disabled \
+		-Dlibunwind=disabled \
+		. output
+	meson compile -C output -j "${JOBS:-1}"
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+}
+sha512sums="
+6746b73f5b87e8ff3723eee586b4b5f033dbe6d13cd0309d743b7fa484c350268859ec8ff21aadcbca7a04070cdaa7828146dd28dde4b1935bb879891d687f0b  mesa-26.1.6.tar.xz
+"
