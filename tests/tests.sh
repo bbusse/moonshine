@@ -324,28 +324,34 @@ test_sway_comes_up_headless() {
         || fail "sway did not come up headless at the expected size"
 }
 
-test_sway_web_no_mesa_llvm_pkgs() {
-    sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "mesa|llvm|vulkan|spirv"' \
-        || fail "found a mesa/llvm/vulkan package in the sway-web image"
+# mesa-llvmpipe has llvm in its own name and links it statically, so what must
+# not appear is the shared llvm-libs package, not every name matching llvm
+test_sway_web_no_llvm_vulkan_pkgs() {
+    sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "^P:llvm|vulkan|spirv"' \
+        || fail "found an llvm-libs/vulkan package in the sway-web image"
 }
-test_sway_web_no_libegl_libgl_files() {
-    sway_web_fs '! find . \( -name "libEGL*" -o -name "libGL.so*" -o -name "libgallium*" -o -name "libLLVM*" \) | grep -q .' \
-        || fail "found a libEGL/libGL/libgallium/libLLVM file in the sway-web image"
+# Alpine's own mesa is what drags llvm in; ours is the softpipe-only build
+test_sway_web_no_alpine_mesa_pkgs() {
+    sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qE "^P:mesa(-gl|-egl|-gles|-gbm|-dri.*)?$"' \
+        || fail "found an Alpine mesa package in the sway-web image"
+}
+# Either flavour satisfies this; which one is a build argument
+test_sway_web_our_mesa_installed() {
+    sway_web_fs 'grep -qE "^P:mesa-(softpipe|llvmpipe)$" lib/apk/db/installed' \
+        || fail "neither mesa-softpipe nor mesa-llvmpipe is in the apk db"
+}
+test_sway_web_has_libegl() {
+    sway_web_fs 'test -e usr/lib/libEGL.so.1' \
+        || fail "libEGL.so.1 missing from the sway-web image"
+}
+# glx is left out of the build, so libGL is the one that must not appear
+test_sway_web_no_llvm_or_libgl_files() {
+    sway_web_fs '! find . \( -name "libLLVM*" -o -name "libGL.so*" \) | grep -q .' \
+        || fail "found a libGL/libLLVM file in the sway-web image"
 }
 test_sway_web_no_ffmpeg_encoders() {
     sway_web_fs '! grep "^P:" lib/apk/db/installed | grep -qiE "^P:(ffmpeg|x26[45]-libs|libSvtAv1|rav1e)"' \
         || fail "found an ffmpeg/encoder package in the sway-web image"
-}
-test_sway_web_dlopen_stubs_installed() {
-    sway_web_fs 'grep -q "^P:dlopen-stubs$" lib/apk/db/installed' \
-        || fail "dlopen-stubs is not in the apk db"
-}
-test_sway_web_firefox_runs() {
-    run_in --entrypoint /usr/bin/firefox "$SWAY_WEB_IMAGE" --version | grep -qi firefox \
-        || fail "firefox did not report a version"
-}
-test_sway_web_geckodriver_present() {
-    sway_web_fs 'test -x usr/bin/geckodriver' || fail "geckodriver missing"
 }
 test_sway_web_has_a_font() {
     sway_web_fs 'find usr/share/fonts -name "*.ttf" | grep -q .' \

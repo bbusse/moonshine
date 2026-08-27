@@ -30,7 +30,7 @@ ARG UTILS=none
 # Which moonshine release to take uutils from, and the pkgver/pkgrel it was
 # published under (from uutils/apkbuild/APKBUILD). Only read when
 # UTILS=uutils
-ARG MOONSHINE_VERSION=v0-rc3
+ARG MOONSHINE_VERSION=v0-rc5
 ARG UUTILS_PKGVER=0.10.0
 ARG UUTILS_PKGREL=4
 
@@ -154,8 +154,8 @@ a610db78a6d3f0c757c0f1a70fe6d01db399939e01c226c8a6d18d22aeb4bc19  aarch64-brush-
 # uutils, from https://github.com/bbusse/moonshine/releases
 # Regenerate with:
 #   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
-99c4aff96d512668fa72523e4d59a5b2f49ec0207b40f5756dae709ea4519266  uutils-0.10.0-r4.aarch64-v0-rc3.apk
-38ace0f5764ab6f7f7bf8ac4503edb7be926ebec2d0fe7176677ecc289c049a4  uutils-0.10.0-r4.x86_64-v0-rc3.apk
+6a47d47be6d86543afb9c56a39519187dd23fe11e003e22c7697547faa246310  uutils-0.10.0-r4.aarch64-v0-rc5.apk
+13b8591001ee2dd71a20b3f9e2c019f2228695cdc046dccbcda08fad74507b04  uutils-0.10.0-r4.x86_64-v0-rc5.apk
 SUMS
 
 # One fetch-and-verify path, used by both the brush and uutils steps below.

@@ -22,7 +22,7 @@ STAGE1   ?=
 SUBARCH  ?= amd64
 VARIANT  ?= openrc
 # Empty: Containerfile.stage3 derives default/linux/$(SUBARCH)/23.0.
-# Set it for a non-default profile (hardened, musl, llvm).
+# Set it for a non-default profile (hardened, musl, llvm)
 PROFILE  ?=
 JOBS     ?= 4
 
@@ -34,16 +34,23 @@ UTILS         ?= none
 # The moonshine release sway-pixman was published under (see `make rc`/`make
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
-# sensible to fall back to before a release exists.
-MOONSHINE_VERSION ?= v0-rc3
+# sensible to fall back to before a release exists
+MOONSHINE_VERSION ?= v0-rc5
 
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 0
 
 # uutils, from uutils/apkbuild/APKBUILD. Which utilities it contains is
-# set by _utils in that file, not here.
+# set by _utils in that file, not here
 UUTILS_PKGVER ?= 0.10.0
 UUTILS_PKGREL ?= 4
+
+# mesa, from mesa-{softpipe,llvmpipe}/apkbuild/APKBUILD. pkgver tracks the mesa
+# release both build. MESA_FLAVOUR picks which one sway-web installs: softpipe
+# is smaller, llvmpipe reaches the OpenGL 4.3 that wgpu needs
+MESA_PKGVER   ?= 26.1.6
+MESA_PKGREL   ?= 0
+MESA_FLAVOUR  ?= softpipe
 
 RELEASE_URL   ?= https://github.com/bbusse/moonshine/releases/download
 
@@ -53,8 +60,9 @@ BASE_ARGS    = --build-arg ALPINE_TAG=$(ALPINE_TAG) --build-arg ALPINE_BRANCH=$(
 BRUSHIMG_ARGS= --build-arg ALPINE_TAG=$(ALPINE_TAG) $(BRUSH_ARGS)
 PYTHON_ARGS  = --build-arg ALPINE_TAG=$(ALPINE_TAG) $(UUTILS_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
+SWAY_WEB_ARGS = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg MESA_PKGVER=$(MESA_PKGVER) --build-arg MESA_PKGREL=$(MESA_PKGREL) --build-arg MESA_FLAVOUR=$(MESA_FLAVOUR)
 
-.PHONY: all base brush apk python sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk python sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums mesa-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
 all: base apk brush python sway sway-web ## build every image
 
@@ -73,9 +81,9 @@ sway: apk ## build the sway image on top of the apk image
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg APK_IMAGE=$(APK_IMAGE) $(SWAY_ARGS) \
 	  -f Containerfile.sway -t $(SWAY_IMAGE) .
 
-sway-web: sway ## build the sway image with Firefox and geckodriver
+sway-web: sway ## build the sway image with a software-only mesa
 	$(ENGINE) build $(PLATFORM_ARG) --build-arg SWAY_IMAGE=$(SWAY_IMAGE) \
-	  --build-arg ALPINE_TAG=$(ALPINE_TAG) \
+	  --build-arg ALPINE_TAG=$(ALPINE_TAG) $(SWAY_WEB_ARGS) \
 	  -f Containerfile.sway-web -t $(SWAY_WEB_IMAGE) .
 
 catalyst: ## build the Catalyst builder image (seed + catalyst + portage snapshot)
@@ -126,7 +134,7 @@ brush-shell: brush ## interactive brush in the libc-free image
 # heredocs in the Containerfiles. Downloads to a file and checks curl before
 # hashing: piping curl straight into a digest prints the hash of empty input on
 # a 404 (e3b0c442...), which looks exactly like a valid pin. openssl rather
-# than sha256sum because stock macOS has no sha256sum.
+# than sha256sum because stock macOS has no sha256sum
 define sums
 @t=$$(mktemp -d); trap 'rm -rf "$$t"' EXIT; \
 for a in $(2); do \
@@ -151,6 +159,13 @@ uutils-checksums: ## re-pin uutils apk checksums for MOONSHINE_VERSION/UUTILS_PK
 	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
 	  uutils-$(UUTILS_PKGVER)-r$(UUTILS_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
+mesa-checksums: ## re-pin both mesa apk checksums for MOONSHINE_VERSION/MESA_PKGVER
+	$(call sums,$(RELEASE_URL)/$(MOONSHINE_VERSION),\
+	  mesa-softpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
+	  mesa-softpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).x86_64-$(MOONSHINE_VERSION).apk \
+	  mesa-llvmpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
+	  mesa-llvmpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
+
 clean: ## remove built images
 	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(PYTHON_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
 
@@ -171,7 +186,7 @@ _check-up-to-date: _check-remote _check-branch
 	    { echo "Error: $(RELEASE_BRANCH) has commits you don't have — pull/rebase before tagging a release."; exit 1; }
 
 # Both targets below share one recipe (tag with a prefix, confirm, push); only the tag
-# prefix and prompt wording differ, set here as target-specific variables.
+# prefix and prompt wording differ, set here as target-specific variables
 release: TAG_PREFIX := release
 release: KIND := release
 release-candidate rc: TAG_PREFIX := rc

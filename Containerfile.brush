@@ -16,7 +16,7 @@ FROM docker.io/library/alpine:${ALPINE_TAG} AS build
 ARG BRUSH_VERSION=0.4.0
 ARG BRUSH_PKGREL=0
 # Key and checksums inline, so this Containerfile needs nothing from the
-# build context. Regenerate the key from bbusse/alpine-brush-build if rotated.
+# build context. Regenerate the key from bbusse/alpine-brush-build if rotated
 RUN <<'SCRIPT'
 set -eu
 cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
@@ -44,7 +44,7 @@ a610db78a6d3f0c757c0f1a70fe6d01db399939e01c226c8a6d18d22aeb4bc19  aarch64-brush-
 SUMS
 SCRIPT
 
-# sha256 pin plus apk's own signature check -- see Containerfile.base.
+# sha256 pin plus apk's own signature check -- see Containerfile.base
 RUN <<'SCRIPT'
 set -eu
 ARCH="$(apk --print-arch)"

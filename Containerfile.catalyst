@@ -46,7 +46,7 @@ ARG SNAPSHOT_DATE=
 # A bind mount gives the script access to the build context without a COPY,
 # so no sentinel file is needed in the repo. BuildKit caches RUN
 # --mount=type=bind on instruction text and build args only, not on build
-# context contents, so edits to this file do not bust the seed-download layer.
+# context contents, so edits to this file do not bust the seed-download layer
 FROM alpine AS seed
 ARG STAGE1=
 ARG SUBARCH
@@ -89,7 +89,7 @@ ARG SNAPSHOT_DATE
 # a container: ipc-sandbox and pid-sandbox each create a new namespace per
 # ebuild, which makes PTY slave fds stale (ENOTTY) and breaks portage's build
 # output capture.  Disable all four sandbox modes; the OCI runtime is the
-# isolation boundary.
+# isolation boundary
 RUN <<'SCRIPT'
 set -eu
 echo 'FEATURES="-sandbox -usersandbox -ipc-sandbox -pid-sandbox -network-sandbox"' >> /etc/portage/make.conf
@@ -117,7 +117,7 @@ SCRIPT
 # not a subclass of OSError, so portage's existing except clause does not catch
 # it.  Patch _pty.py to catch termios.error and fall back to a plain pipe so
 # that every emerge that compiles a package does not hang waiting on a PTY that
-# will never be ready.
+# will never be ready
 RUN python3 - <<'PYFIX'
 import glob, sys
 ok = False
@@ -164,7 +164,7 @@ PYFIX
 # it off keeps dev-lang/perl and the whole virtual/perl-* set out of the
 # builder entirely.  cgi, cvs, mediawiki and subversion are listed with it
 # because git's REQUIRED_USE ties each of them to perl: leaving one enabled
-# turns -perl into a solver error rather than a saving.
+# turns -perl into a solver error rather than a saving
 RUN <<'SCRIPT'
 set -eu
 mkdir -p /etc/portage/package.use /etc/portage/package.mask
@@ -187,7 +187,7 @@ RUN emerge --quiet --oneshot --update sys-apps/portage
 # builder image that only needs Catalyst to run.  A plain emerge installs
 # what is missing and leaves the seed's own versions alone.  USE requirements
 # (util-linux[python] above) are still honoured: emerge rebuilds a package
-# whose installed USE cannot satisfy a dependency atom.
+# whose installed USE cannot satisfy a dependency atom
 RUN ACCEPT_KEYWORDS="~${SUBARCH}" emerge --quiet dev-util/catalyst sys-fs/squashfs-tools-ng
 
 RUN python3 - <<'PYFIX'
@@ -214,7 +214,7 @@ for rel, pat, rep in edits:
 sys.exit(0 if ok else 1)
 PYFIX
 
-# Stage the seed tarball where Catalyst expects it.
+# Stage the seed tarball where Catalyst expects it
 RUN mkdir -p /var/tmp/catalyst/builds/default
 COPY --from=seed /seed.tar.xz /var/tmp/catalyst/builds/default/seed.tar.xz
 

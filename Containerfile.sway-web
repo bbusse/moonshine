@@ -1,84 +1,105 @@
-# moonshine sway-web -- sway plus a wayland-native Firefox
+# moonshine sway-web -- sway plus the software GL a browser engine needs
 #
 # SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
 # SPDX-License-Identifier: BSD-3-Clause
 
 ARG SWAY_IMAGE=moonshine-sway:latest
 ARG ALPINE_TAG=3.24
+ARG MOONSHINE_VERSION=v0-rc5
+ARG MESA_PKGVER=26.1.6
+ARG MESA_PKGREL=0
+# softpipe or llvmpipe -- see the comment on the install below
+ARG MESA_FLAVOUR=softpipe
 
-FROM docker.io/library/alpine:${ALPINE_TAG} AS dlopenstubs
+FROM docker.io/library/alpine:${ALPINE_TAG} AS mesafetch
+ARG MOONSHINE_VERSION
+ARG MESA_PKGVER
+ARG MESA_PKGREL
+ARG MESA_FLAVOUR
 RUN <<'SCRIPT'
 set -eu
-apk add --no-cache abuild
-adduser -D -G abuild builder
-mkdir -p /home/builder/.abuild
+cat > /etc/apk/keys/apk-releases.rsa.pub <<'KEY'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0jsW8N8Taync3kV83e9s
+BbrGY4UGkTmVE4ASeHi6CpNKWoSMdrRpEGJQv38BfzFSIXKm64NbmGIRE9PcYvNa
+s+nNxasAJu8TH+XY/ZNx3oUABpNEpy5UCNSGQmCLkKi7Cdk3WBikb5OPPAdRznqV
+bN0dEPFv+Xr2fXljDzHDdb98Zct6zbmvkkCpBuRuHzmybyCbsZFC1171azJB3k+N
+DMDFfGD51TX62l+mNjwgEaMTEwg+iwR5LroR63q27bQrIb4E2BqmGdPG67Tm1oK9
+ArB5zx5STq8iALRI8j7sJUo9mFHMtt7DkOv0Vxn4j/OAj62HK5Ie39PeCLOgDT1P
+2lM0tyv8jnd4v3PU5VYqnfrUjomqsTUIg61Xjy5WNTtH3nFMS/5Gk+kcrfGbKcMO
+haE+8h45QnyqEF6UWTjciBsvoPyrM82ni6t/8AIoGDe4GCZYdAD4RzwUmxdU2wOz
+EqsHkXDzx/3WbUAZF9f+5bYFu7/qe8qQXzwU1nPBJEvv1wvFj4qzh0ru6BIUvPfs
+t1PBAGis/Dkisefx0gyaNms3q7rBu8xRylRIDSIWZZGoPscCzLpZBIsud3SfFuLz
+61Rb9FKvWilEWBr5uq2tQCQehyh1oBHQXxYjb7EvojQ7tFdRmtY9jy1GQT2a1TNf
+LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
+-----END PUBLIC KEY-----
+KEY
+cat > /checksums.txt <<'SUMS'
+# sha256 of the mesa-softpipe apks published at
+# https://github.com/bbusse/moonshine/releases
+# Both flavours are pinned; MESA_FLAVOUR decides which one is fetched
+# Regenerate with: make mesa-checksums MOONSHINE_VERSION=<tag> MESA_PKGVER=<x.y.z> MESA_PKGREL=<n>
+fdbc830251a497a8ae73638a1e446984d273eb7038223fc639cb0b5d350d4e46  mesa-softpipe-26.1.6-r0.aarch64-v0-rc5.apk
+fd7f9cafe6bc1416151bbc4fed6d00230053534b80b39290da3bafc75aa37bda  mesa-softpipe-26.1.6-r0.x86_64-v0-rc5.apk
+b52ece39d726dcd746482c728553a9fef69c5f5825e140c324474361ed896261  mesa-llvmpipe-26.1.6-r0.aarch64-v0-rc5.apk
+96be544af2e7e2ef9fb4f1647587074068c914a488bfcea07c47775318e61e38  mesa-llvmpipe-26.1.6-r0.x86_64-v0-rc5.apk
+SUMS
+SCRIPT
 
-KEY=/home/builder/.abuild/moonshine-local.rsa
-openssl genrsa -out "$KEY" 4096 2>/dev/null
-openssl rsa -in "$KEY" -pubout -out "${KEY}.pub" 2>/dev/null
-install -m 0644 "${KEY}.pub" /etc/apk/keys/moonshine-local.rsa.pub
+# Same two checks as Containerfile.sway: a sha256 pin plus apk's own signature
+# verification. The asset name carries its pkgver/pkgrel and the moonshine
+# release it was published under
+RUN <<'SCRIPT'
+set -eu
+: "${MOONSHINE_VERSION:?set MOONSHINE_VERSION to the release tag the apk was published under}"
+: "${MESA_PKGVER:?set MESA_PKGVER to the mesa pkgver}"
+: "${MESA_FLAVOUR:?set MESA_FLAVOUR to softpipe or llvmpipe}"
 
-cat > /home/builder/.abuild/abuild.conf <<CONF
-PACKAGER_PRIVKEY="$KEY"
-PACKAGER="moonshine <none@localhost>"
-CONF
+RELEASE="https://github.com/bbusse/moonshine/releases/download/${MOONSHINE_VERSION}"
+ARCH="$(apk --print-arch)"
 
-W=/tmp/aports/moonshine/dlopen-stubs
-mkdir -p "$W"
-cat > "$W/APKBUILD" <<'APKBUILD'
-pkgname=dlopen-stubs
-pkgver=1
-pkgrel=0
-pkgdesc="Claims the libEGL, libGL and libavcodec deps firefox only dlopens"
-url="https://github.com/bbusse/moonshine"
-arch="all"
-license="BSD-3-Clause"
-provides="so:libEGL.so.1=1 so:libGL.so.1=1 ffmpeg-libavcodec=1"
-provider_priority=1
-source=""
-options="!check !strip !tracedeps !archcheck !dbg"
-
-package() {
-    install -Dm644 /dev/null "$pkgdir"/usr/share/dlopen-stubs/.keep
+fetch_apk() {
+    asset="$1"
+    expected="$(awk -v a="$asset" '$2 == a { print $1 }' /checksums.txt)"
+    if [ -z "$expected" ]; then
+        echo "no checksum pinned for $asset" >&2
+        exit 1
+    fi
+    echo "fetching $asset"
+    wget -q -O "/packages/$2" "${RELEASE}/${asset}"
+    echo "${expected}  /packages/$2" | sha256sum -c - >/dev/null
+    echo "checksum ok"
 }
-APKBUILD
 
-chown -R builder:abuild "$W" /home/builder
-su builder -c "cd $W && abuild -d"
-
-pkg="$(find /home/builder/packages -name 'dlopen-stubs-*.apk' | head -n 1)"
-[ -n "$pkg" ] || { echo "dlopen-stubs build produced nothing" >&2; exit 1; }
-mkdir -p /out
-cp "$pkg" /out/dlopen-stubs.apk
-cp "${KEY}.pub" /out/moonshine-local.rsa.pub
+mkdir -p /packages
+fetch_apk "mesa-${MESA_FLAVOUR}-${MESA_PKGVER}-r${MESA_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" mesa.apk
 SCRIPT
 
 FROM ${SWAY_IMAGE}
 
-COPY --from=dlopenstubs /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
-COPY --from=dlopenstubs /out/dlopen-stubs.apk /tmp/dlopen-stubs.apk
+COPY --from=mesafetch /packages/ /tmp/packages/
+
+# Two software rasterizers, one installed: softpipe links no llvm at all and
+# costs 15 MB, but stops at OpenGL 3.3; llvmpipe JITs shaders and reaches 4.6,
+# which is what wgpu needs, for 78 MB with llvm linked in. Alpine's own mesa is
+# the third option and the worst of both -- llvmpipe against a shared
+# llvm22-libs, 173 MB. servo runs on either; vju needs llvmpipe unless it is
+# the vju-glow build
+RUN apk add --no-cache /tmp/packages/mesa.apk && rm -rf /tmp/packages
 
 RUN <<'SCRIPT'
 set -eu
-apk add --no-cache /tmp/dlopen-stubs.apk
-rm -f /tmp/dlopen-stubs.apk
-
 apk add --no-cache \
-    firefox \
-    geckodriver \
-    sed \
     font-dejavu \
     font-awesome
 
 fc-cache -f
 
-found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles x265-libs libSvtAv1Enc 2>/dev/null || true)"
+found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null || true)"
 if [ -n "$found" ]; then
-    echo "pulled in by the solver despite dlopen-stubs: $found" >&2
+    echo "pulled in by the solver despite mesa-softpipe: $found" >&2
     exit 1
 fi
-
-firefox --version
 SCRIPT
 
 RUN <<'SCRIPT'
@@ -87,12 +108,8 @@ mkdir -p /etc/sway/config.d
 echo "xwayland disable" > /etc/sway/config.d/xwayland
 SCRIPT
 
-ENV MOZ_ENABLE_WAYLAND=1 \
-    GECKODRIVER=/usr/bin/geckodriver \
-    FIREFOX_BIN=/usr/bin/firefox
-
 LABEL org.opencontainers.image.title="moonshine-sway-web" \
-      org.opencontainers.image.description="sway with a wayland-native Firefox and geckodriver, no mesa" \
+      org.opencontainers.image.description="sway with a software-only mesa for browser engines, no llvm" \
       org.opencontainers.image.licenses="BSD-3-Clause" \
       org.opencontainers.image.source="https://github.com/bbusse/moonshine"
 
