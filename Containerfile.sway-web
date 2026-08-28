@@ -75,9 +75,67 @@ mkdir -p /packages
 fetch_apk "mesa-${MESA_FLAVOUR}-${MESA_PKGVER}-r${MESA_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" mesa.apk
 SCRIPT
 
+FROM docker.io/library/alpine:${ALPINE_TAG} AS glstub
+RUN <<'SCRIPT'
+set -eu
+apk add --no-cache abuild
+adduser -D -G abuild builder
+mkdir -p /home/builder/.abuild
+
+KEY=/home/builder/.abuild/moonshine-local.rsa
+openssl genrsa -out "$KEY" 4096 2>/dev/null
+openssl rsa -in "$KEY" -pubout -out "${KEY}.pub" 2>/dev/null
+
+cat > /home/builder/.abuild/abuild.conf <<CONF
+PACKAGER_PRIVKEY="$KEY"
+PACKAGER="moonshine <none@localhost>"
+CONF
+
+W=/tmp/aports/moonshine/gl-stub
+mkdir -p "$W"
+cat > "$W/APKBUILD" <<'APKBUILD'
+pkgname=gl-stub
+pkgver=1
+pkgrel=0
+pkgdesc="Claims so:libGL.so.1 for dlopen-only consumers"
+url="https://github.com/bbusse/moonshine"
+arch="all"
+license="BSD-3-Clause"
+# Only libGL. mesa-softpipe and mesa-llvmpipe ship a real libEGL and libGLESv2,
+# so claiming those here would shadow them. Desktop GL is the one API a
+# wayland-only mesa does not build -- it comes with glx, which would drag in
+# X11 -- and gst-plugins-base declares so:libGL.so.1 for its opengl plugin,
+# which nothing here loads
+provides="so:libGL.so.1=1"
+provider_priority=1
+source=""
+options="!check !strip !tracedeps"
+
+package() {
+    mkdir -p "$pkgdir"
+}
+APKBUILD
+
+chown -R builder:abuild "$W" /home/builder
+# abuild signs the apk and then indexes it, and the index step verifies the
+# signature, so the throwaway key has to be trusted here too
+cp "${KEY}.pub" /etc/apk/keys/
+
+# stdout only: abuild is chatty, but hiding its stderr hides why it failed
+su builder -c "cd $W && abuild -d" >/dev/null
+
+pkg="$(find /home/builder/packages -name 'gl-stub-*.apk' | head -n 1)"
+[ -n "$pkg" ] || { echo "gl-stub build produced nothing" >&2; exit 1; }
+mkdir -p /out
+cp "$pkg" /out/gl-stub.apk
+cp "${KEY}.pub" /out/moonshine-local.rsa.pub
+SCRIPT
+
 FROM ${SWAY_IMAGE}
 
 COPY --from=mesafetch /packages/ /tmp/packages/
+COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
+COPY --from=glstub /out/gl-stub.apk /tmp/gl-stub.apk
 
 # Two software rasterizers, one installed: softpipe links no llvm at all and
 # costs 15 MB, but stops at OpenGL 3.3; llvmpipe JITs shaders and reaches 4.6,
@@ -85,7 +143,8 @@ COPY --from=mesafetch /packages/ /tmp/packages/
 # the third option and the worst of both -- llvmpipe against a shared
 # llvm22-libs, 173 MB. servo runs on either; vju needs llvmpipe unless it is
 # the vju-glow build
-RUN apk add --no-cache /tmp/packages/mesa.apk && rm -rf /tmp/packages
+RUN apk add --no-cache /tmp/packages/mesa.apk /tmp/gl-stub.apk \
+    && rm -rf /tmp/packages /tmp/gl-stub.apk
 
 RUN <<'SCRIPT'
 set -eu
@@ -100,6 +159,13 @@ if [ -n "$found" ]; then
     echo "pulled in by the solver despite mesa-softpipe: $found" >&2
     exit 1
 fi
+
+# gst-plugins-base is the consumer that needs so:libGL.so.1; if the stub stops
+# satisfying it the solver reaches for mesa-gl and drags in the whole of mesa
+apk add --no-cache --simulate gst-plugins-base >/dev/null 2>&1 || {
+    echo "gst-plugins-base is unsatisfiable -- gl-stub is not covering libGL" >&2
+    exit 1
+}
 SCRIPT
 
 RUN <<'SCRIPT'
