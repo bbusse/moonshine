@@ -83,12 +83,13 @@ FROM ${APK_IMAGE}
 
 # uutils is not optional here the way it is in the base image: sway shells out
 # (it calls uname during startup), and sway-smoke needs sleep and cat
-COPY --from=swayfetch /packages/ /tmp/packages/
 # uutils first and on its own: package install scripts run under brush, which
 # has no coreutils, and on 3.24 libglycin's post-install calls cat. In a single
 # transaction apk may run that script before uutils is unpacked
-RUN apk add --no-cache /tmp/packages/uutils.apk
-RUN apk add --no-cache /tmp/packages/sway-pixman.apk && rm -rf /tmp/packages
+RUN --mount=type=bind,from=swayfetch,source=/packages,target=/tmp/packages \
+    apk add --no-cache /tmp/packages/uutils.apk
+RUN --mount=type=bind,from=swayfetch,source=/packages,target=/tmp/packages \
+    apk add --no-cache /tmp/packages/sway-pixman.apk
 
 # Config and smoke script inline; by this point uutils is installed, so there
 # is a mkdir and a chmod to call

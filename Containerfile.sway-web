@@ -133,9 +133,7 @@ SCRIPT
 
 FROM ${SWAY_IMAGE}
 
-COPY --from=mesafetch /packages/ /tmp/packages/
 COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
-COPY --from=glstub /out/gl-stub.apk /tmp/gl-stub.apk
 
 # Two software rasterizers, one installed: softpipe links no llvm at all and
 # costs 15 MB, but stops at OpenGL 3.3; llvmpipe JITs shaders and reaches 4.6,
@@ -143,8 +141,9 @@ COPY --from=glstub /out/gl-stub.apk /tmp/gl-stub.apk
 # the third option and the worst of both -- llvmpipe against a shared
 # llvm22-libs, 173 MB. servo runs on either; vju needs llvmpipe unless it is
 # the vju-glow build
-RUN apk add --no-cache /tmp/packages/mesa.apk /tmp/gl-stub.apk \
-    && rm -rf /tmp/packages /tmp/gl-stub.apk
+RUN --mount=type=bind,from=mesafetch,source=/packages,target=/tmp/packages \
+    --mount=type=bind,from=glstub,source=/out,target=/tmp/glstub \
+    apk add --no-cache /tmp/packages/mesa.apk /tmp/glstub/gl-stub.apk
 
 RUN <<'SCRIPT'
 set -eu
