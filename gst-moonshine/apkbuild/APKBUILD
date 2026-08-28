@@ -1,0 +1,107 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=gst-moonshine
+pkgver=1.28.3
+pkgrel=0
+pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
+url="https://gstreamer.freedesktop.org"
+arch="all"
+license="LGPL-2.1-or-later AND GPL-2.0-or-later"
+# Alpine's four packages ship every plugin, and gst-plugins-good alone pulls
+# libsoup, gnutls, pulseaudio, FireWire and a tail of audio codecs -- 56
+# packages and 32 MB for elements nothing here instantiates. These build the
+# ten plugins scream's pipelines use. provides= lets scream's package
+# dependencies resolve to this one. No explicit !conflicts -- building needs
+# gst-plugins-base-dev, which a conflict on its parent would break -- but the
+# sets own the same file paths, so apk refuses to install both anyway
+provides="gst-plugins-base=$pkgver gst-plugins-good=$pkgver
+	gst-plugins-ugly=$pkgver gst-rtsp-server=$pkgver"
+provider_priority=10
+makedepends="
+	glib-dev
+	gst-plugins-base-dev
+	gstreamer-dev
+	libjpeg-turbo-dev
+	libvpx-dev
+	meson
+	ninja
+	orc-dev
+	pkgconf
+	x264-dev
+	zlib-dev
+	"
+source="
+	https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$pkgver.tar.xz
+	https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$pkgver.tar.xz
+	https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-$pkgver.tar.xz
+	https://gstreamer.freedesktop.org/src/gst-rtsp-server/gst-rtsp-server-$pkgver.tar.xz
+	"
+builddir="$srcdir"
+options="!check"
+
+# What each module contributes, from scream's pipelines:
+#   base   appsrc, videoconvert/videoscale, videotestsrc -- and the libraries
+#          the other modules and the rtsp server link
+#   good   rtph264pay (rtp), rtpbin (rtpmanager), vp8enc (vpx),
+#          jpegenc (jpeg), webmmux (matroska)
+#   ugly   x264enc, the encoder of the rtsp h264 stream; gpl=enabled is its
+#          license gate, hence GPL in license= above
+#   rtsp-server  the server scream embeds
+build() {
+	local common="--prefix=/usr --buildtype=release -Dauto_features=disabled"
+
+	cd "$srcdir/gst-plugins-base-$pkgver"
+	meson setup output $common \
+		-Dapp=enabled \
+		-Dvideoconvertscale=enabled \
+		-Dvideotestsrc=enabled \
+		-Dtypefind=enabled \
+		-Dorc=enabled \
+		-Dtools=disabled \
+		-Dexamples=disabled \
+		-Dtests=disabled \
+		-Ddoc=disabled
+	meson compile -C output -j "${JOBS:-1}"
+
+	cd "$srcdir/gst-plugins-good-$pkgver"
+	meson setup output $common \
+		-Drtp=enabled \
+		-Drtpmanager=enabled \
+		-Dvpx=enabled \
+		-Djpeg=enabled \
+		-Dmatroska=enabled \
+		-Dexamples=disabled \
+		-Dtests=disabled \
+		-Ddoc=disabled
+	meson compile -C output -j "${JOBS:-1}"
+
+	cd "$srcdir/gst-plugins-ugly-$pkgver"
+	meson setup output $common \
+		-Dgpl=enabled \
+		-Dx264=enabled \
+		-Dtests=disabled \
+		-Ddoc=disabled
+	meson compile -C output -j "${JOBS:-1}"
+
+	cd "$srcdir/gst-rtsp-server-$pkgver"
+	meson setup output $common \
+		-Dexamples=disabled \
+		-Dtests=disabled \
+		-Ddoc=disabled
+	meson compile -C output -j "${JOBS:-1}"
+}
+
+package() {
+	local m
+	for m in gst-plugins-base gst-plugins-good gst-plugins-ugly gst-rtsp-server; do
+		DESTDIR="$pkgdir" meson install --no-rebuild -C "$srcdir/$m-$pkgver/output"
+	done
+	rm -rf "$pkgdir"/usr/include "$pkgdir"/usr/lib/pkgconfig \
+	       "$pkgdir"/usr/share/gir-1.0 "$pkgdir"/usr/lib/girepository-1.0
+}
+sha512sums="
+768092d8c06996540bb2166051b7b2eca9329ab7f618c9086af6c133b73ac41d52d4e44cad57e79c6e65faca28cf1084765fde068930854733ac8247e85a4d24  gst-plugins-base-1.28.3.tar.xz
+dafa5f402e5b9f590800036fb7c33192135563e39665cf161e44e781a9f82ff5dec5db6e37e6ca4ca2190f32a6ceb796a31246a08854f9c9fa3f7ae2a0281b01  gst-plugins-good-1.28.3.tar.xz
+67b8cfeda68fc755307478dacf150817e42c6200b10fd0367955c3d8ca50bc37e757d41575656c93998ad0c9b92f576b2f9e00272f57f2c2a9403f70ac6c352c  gst-plugins-ugly-1.28.3.tar.xz
+cdc78fc7dde85b33836f1591a4cc72d2b41ad57c0d3ba7517cb9772ac4a205c76f43c3f0ed2cdc21bd420c6b6fb39532ed83fa61913ef9ba40a3814115bf6602  gst-rtsp-server-1.28.3.tar.xz
+"
