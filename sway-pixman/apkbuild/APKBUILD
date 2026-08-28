@@ -3,7 +3,7 @@
 pkgname=sway-pixman
 pkgver=1.12
 _wlroots=0.20.2
-pkgrel=0
+pkgrel=1
 pkgdesc="sway for software rendering only, with a pixman-only wlroots linked in"
 url="https://swaywm.org"
 arch="all"
@@ -17,7 +17,6 @@ subpackages="$pkgname-doc $pkgname-bash-completion $pkgname-fish-completion
 	$pkgname-zsh-completion"
 makedepends="
 	cairo-dev
-	gdk-pixbuf-dev
 	hwdata-dev
 	json-c-dev
 	libdisplay-info-dev
@@ -66,7 +65,7 @@ build() {
 
 	cd "$builddir"
 	export PKG_CONFIG_PATH="$srcdir/wlr/lib/pkgconfig"
-	abuild-meson . output
+	abuild-meson -Dgdk-pixbuf=disabled . output
 	meson compile -C output
 }
 
