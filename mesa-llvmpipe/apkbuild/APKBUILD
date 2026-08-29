@@ -61,7 +61,7 @@ build() {
 		-Dvalgrind=disabled \
 		-Dlibunwind=disabled \
 		. output
-	meson compile -C output -j "${JOBS:-1}"
+	meson compile -C output -j "${JOBS:-$(nproc)}"
 }
 
 package() {

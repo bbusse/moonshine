@@ -14,16 +14,8 @@ APK_IMAGE   ?= moonshine-apk:latest
 PYTHON_IMAGE ?= moonshine-python:latest
 SWAY_IMAGE  ?= moonshine-sway:latest
 SWAY_WEB_IMAGE ?= moonshine-sway-web:latest
-CATALYST_IMAGE ?= moonshine-catalyst:local
-STAGE3_IMAGE ?= moonshine-stage3:local
 PLATFORM    ?=
 
-STAGE1   ?=
-SUBARCH  ?= amd64
-VARIANT  ?= openrc
-# Empty: Containerfile.stage3 derives default/linux/$(SUBARCH)/23.0.
-# Set it for a non-default profile (hardened, musl, llvm)
-PROFILE  ?=
 JOBS     ?= 4
 
 PLATFORM_ARG = $(if $(PLATFORM),--platform $(PLATFORM),)
@@ -62,7 +54,7 @@ PYTHON_ARGS  = --build-arg ALPINE_TAG=$(ALPINE_TAG) $(UUTILS_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 SWAY_WEB_ARGS = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg MESA_PKGVER=$(MESA_PKGVER) --build-arg MESA_PKGREL=$(MESA_PKGREL) --build-arg MESA_FLAVOUR=$(MESA_FLAVOUR)
 
-.PHONY: all base brush apk python sway sway-web catalyst stage3 test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums mesa-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk python sway sway-web test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums mesa-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
 all: base apk brush python sway sway-web ## build every image
 
@@ -86,30 +78,13 @@ sway-web: sway ## build the sway image with a software-only mesa
 	  --build-arg ALPINE_TAG=$(ALPINE_TAG) $(SWAY_WEB_ARGS) \
 	  -f Containerfile.sway-web -t $(SWAY_WEB_IMAGE) .
 
-catalyst: ## build the Catalyst builder image (seed + catalyst + portage snapshot)
-	$(ENGINE) build $(PLATFORM_ARG) \
-	  --build-arg STAGE1=$(STAGE1) \
-	  --build-arg SUBARCH=$(SUBARCH) \
-	  --build-arg VARIANT=$(VARIANT) \
-	  --build-arg JOBS=$(JOBS) \
-	  -f Containerfile.catalyst -t $(CATALYST_IMAGE) .
-
-stage3: catalyst ## build a Gentoo stage3 with the Catalyst image (hours, not minutes)
-	@printf 'catalyst -f runs emerge --emptytree @system. Expect hours.\n'
-	$(ENGINE) build $(PLATFORM_ARG) --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
-	  --build-arg CATALYST_IMAGE=$(CATALYST_IMAGE) \
-	  --build-arg SUBARCH=$(SUBARCH) \
-	  --build-arg PROFILE=$(PROFILE) \
-	  --build-arg JOBS=$(JOBS) \
-	  -f Containerfile.stage3 -t $(STAGE3_IMAGE) .
-
 brush: ## build the scratch+brush image (no libc at all)
 	$(ENGINE) build $(PLATFORM_ARG) $(BRUSHIMG_ARGS) -f Containerfile.brush -t $(BRUSH_IMAGE) .
 
 test: ## verify the images behave (builds them first if needed)
 	ENGINE=$(ENGINE) BASE_IMAGE=$(BASE_IMAGE) BRUSH_IMAGE=$(BRUSH_IMAGE) \
 	  APK_IMAGE=$(APK_IMAGE) SWAY_IMAGE=$(SWAY_IMAGE) UTILS=$(UTILS) \
-	  STAGE3_IMAGE=$(STAGE3_IMAGE) MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
+	  MOONSHINE_VERSION=$(MOONSHINE_VERSION) \
 	  bash_unit tests/tests.sh
 
 sizes: ## report image sizes
@@ -167,7 +142,7 @@ mesa-checksums: ## re-pin both mesa apk checksums for MOONSHINE_VERSION/MESA_PKG
 	  mesa-llvmpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
 
 clean: ## remove built images
-	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(PYTHON_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) $(STAGE3_IMAGE) 2>/dev/null
+	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(PYTHON_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) 2>/dev/null
 
 _check-remote:
 	@git remote get-url $(REMOTE) > /dev/null 2>&1 || \

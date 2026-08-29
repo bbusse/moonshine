@@ -7,13 +7,19 @@ pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond i
 url="https://gstreamer.freedesktop.org"
 arch="all"
 license="LGPL-2.1-or-later AND GPL-2.0-or-later"
-# Alpine's four packages ship every plugin, and gst-plugins-good alone pulls
+# Alpine's packages ship every plugin, and gst-plugins-good alone pulls
 # libsoup, gnutls, pulseaudio, FireWire and a tail of audio codecs -- 56
-# packages and 32 MB for elements nothing here instantiates. These build the
-# ten plugins scream's pipelines use. provides= lets scream's package
-# dependencies resolve to this one. No explicit !conflicts -- building needs
-# gst-plugins-base-dev, which a conflict on its parent would break -- but the
-# sets own the same file paths, so apk refuses to install both anyway
+# packages and 32 MB for elements nothing here instantiates. These build what
+# the moonshine consumers actually run: scream's rtsp/webm/jpeg pipelines AND
+# the iss-display controller's gst-launch pipelines (static-images, v4l2,
+# mosaic). No explicit !conflicts -- building needs gst-plugins-base-dev,
+# which a conflict on its parent would break -- but the sets own the same
+# file paths, so apk refuses to install both anyway.
+#
+# provides= impersonates Alpine's package names so the RELEASED scream apk,
+# which depends on them, resolves here. That claim is broader than what is
+# built: once scream ships depending on gst-moonshine directly, drop these
+# (see ISSUES.md)
 provides="gst-plugins-base=$pkgver gst-plugins-good=$pkgver
 	gst-plugins-ugly=$pkgver gst-rtsp-server=$pkgver"
 provider_priority=10
@@ -22,7 +28,11 @@ makedepends="
 	gst-plugins-base-dev
 	gstreamer-dev
 	libjpeg-turbo-dev
+	libogg-dev
+	libpng-dev
+	libtheora-dev
 	libvpx-dev
+	linux-headers
 	meson
 	ninja
 	orc-dev
@@ -39,56 +49,64 @@ source="
 builddir="$srcdir"
 options="!check"
 
-# What each module contributes, from scream's pipelines:
-#   base   appsrc, videoconvert/videoscale, videotestsrc -- and the libraries
-#          the other modules and the rtsp server link
+# What each module contributes, from scream's and the controller's pipelines:
+#   base   appsrc, videoconvert/videoscale, videotestsrc; theoraenc, oggmux
+#          and tcpserversink for the controller's static-images/v4l2 streams,
+#          rawvideoparse (rawparse) framing the mosaic stream's raw BGRA;
+#          and the libraries the other modules and the rtsp server link
 #   good   rtph264pay (rtp), rtpbin (rtpmanager), vp8enc (vpx),
-#          jpegenc (jpeg), webmmux (matroska)
+#          jpegenc/jpegdec (jpeg), webmmux (matroska), pngdec (png),
+#          v4l2src (v4l2), udpsink (udp)
 #   ugly   x264enc, the encoder of the rtsp h264 stream; gpl=enabled is its
 #          license gate, hence GPL in license= above
 #   rtsp-server  the server scream embeds
 build() {
-	local common="--prefix=/usr --buildtype=release -Dauto_features=disabled"
+	local common="--auto-features=disabled
+		-Dtests=disabled
+		-Ddoc=disabled"
 
 	cd "$srcdir/gst-plugins-base-$pkgver"
-	meson setup output $common \
+	abuild-meson $common \
 		-Dapp=enabled \
 		-Dvideoconvertscale=enabled \
 		-Dvideotestsrc=enabled \
 		-Dtypefind=enabled \
 		-Dorc=enabled \
+		-Dtheora=enabled \
+		-Dogg=enabled \
+		-Dtcp=enabled \
+		-Drawparse=enabled \
 		-Dtools=disabled \
 		-Dexamples=disabled \
-		-Dtests=disabled \
-		-Ddoc=disabled
-	meson compile -C output -j "${JOBS:-1}"
+		. output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
 
 	cd "$srcdir/gst-plugins-good-$pkgver"
-	meson setup output $common \
+	abuild-meson $common \
 		-Drtp=enabled \
 		-Drtpmanager=enabled \
 		-Dvpx=enabled \
 		-Djpeg=enabled \
 		-Dmatroska=enabled \
+		-Dpng=enabled \
+		-Dv4l2=enabled \
+		-Dudp=enabled \
 		-Dexamples=disabled \
-		-Dtests=disabled \
-		-Ddoc=disabled
-	meson compile -C output -j "${JOBS:-1}"
+		. output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
 
 	cd "$srcdir/gst-plugins-ugly-$pkgver"
-	meson setup output $common \
+	abuild-meson $common \
 		-Dgpl=enabled \
 		-Dx264=enabled \
-		-Dtests=disabled \
-		-Ddoc=disabled
-	meson compile -C output -j "${JOBS:-1}"
+		. output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
 
 	cd "$srcdir/gst-rtsp-server-$pkgver"
-	meson setup output $common \
+	abuild-meson $common \
 		-Dexamples=disabled \
-		-Dtests=disabled \
-		-Ddoc=disabled
-	meson compile -C output -j "${JOBS:-1}"
+		. output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
 }
 
 package() {

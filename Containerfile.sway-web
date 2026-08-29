@@ -35,7 +35,7 @@ LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
 -----END PUBLIC KEY-----
 KEY
 cat > /checksums.txt <<'SUMS'
-# sha256 of the mesa-softpipe apks published at
+# sha256 of the mesa apks published at
 # https://github.com/bbusse/moonshine/releases
 # Both flavours are pinned; MESA_FLAVOUR decides which one is fetched
 # Regenerate with: make mesa-checksums MOONSHINE_VERSION=<tag> MESA_PKGVER=<x.y.z> MESA_PKGREL=<n>
@@ -73,6 +73,16 @@ fetch_apk() {
 
 mkdir -p /packages
 fetch_apk "mesa-${MESA_FLAVOUR}-${MESA_PKGVER}-r${MESA_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" mesa.apk
+
+# python-wayland consumers parse these two protocol XMLs at startup, and apk
+# only ships them inside -dev packages that drag linux-headers and pkgconf
+# into a runtime image. This image is the wayland base its consumers build on,
+# so it carries the data files
+apk add --no-cache wayland-dev wayland-protocols >/dev/null
+mkdir -p /protocols/wayland /protocols/wayland-protocols/stable/xdg-shell
+cp /usr/share/wayland/wayland.xml /protocols/wayland/
+cp /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
+   /protocols/wayland-protocols/stable/xdg-shell/
 SCRIPT
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS glstub
@@ -133,6 +143,7 @@ SCRIPT
 
 FROM ${SWAY_IMAGE}
 
+COPY --from=mesafetch /protocols/ /usr/share/
 COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
 
 # Two software rasterizers, one installed: softpipe links no llvm at all and
@@ -155,7 +166,7 @@ fc-cache -f
 
 found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null || true)"
 if [ -n "$found" ]; then
-    echo "pulled in by the solver despite mesa-softpipe: $found" >&2
+    echo "pulled in by the solver despite the moonshine mesa: $found" >&2
     exit 1
 fi
 
