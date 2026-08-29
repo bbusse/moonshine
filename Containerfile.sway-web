@@ -162,6 +162,14 @@ apk add --no-cache \
     font-dejavu \
     font-awesome
 
+# A browser wants regular, bold and italic in sans, serif and mono; the
+# condensed, math and extralight faces have no consumer here and are half the
+# package. Removed in the layer that installed them, so the bytes never ship
+cd /usr/share/fonts/dejavu
+rm -f DejaVuSansCondensed*.ttf DejaVuSerifCondensed*.ttf \
+      DejaVuMathTeXGyre.ttf DejaVuSans-ExtraLight.ttf
+cd /
+
 fc-cache -f
 
 found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null || true)"
