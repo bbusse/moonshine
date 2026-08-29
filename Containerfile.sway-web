@@ -143,6 +143,9 @@ SCRIPT
 
 FROM ${SWAY_IMAGE}
 
+# moonshine-sway ends on USER moonshine; installing packages on top needs root
+USER root
+
 COPY --from=mesafetch /protocols/ /usr/share/
 COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
 
@@ -191,6 +194,10 @@ set -eu
 mkdir -p /etc/sway/config.d
 echo "xwayland disable" > /etc/sway/config.d/xwayland
 SCRIPT
+
+# Back to the account moonshine-sway established; a consumer that installs more
+# switches to root and back again the same way
+USER moonshine
 
 LABEL org.opencontainers.image.title="moonshine-sway-web" \
       org.opencontainers.image.description="sway with a software-only mesa for browser engines, no llvm" \

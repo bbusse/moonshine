@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=gst-moonshine
 pkgver=1.28.3
-pkgrel=0
+pkgrel=1
 pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
 url="https://gstreamer.freedesktop.org"
 arch="all"
@@ -10,9 +10,10 @@ license="LGPL-2.1-or-later AND GPL-2.0-or-later"
 # Alpine's packages ship every plugin, and gst-plugins-good alone pulls
 # libsoup, gnutls, pulseaudio, FireWire and a tail of audio codecs -- 56
 # packages and 32 MB for elements nothing here instantiates. These build what
-# the moonshine consumers actually run: scream's rtsp/webm/jpeg pipelines AND
-# the iss-display controller's gst-launch pipelines (static-images, v4l2,
-# mosaic). No explicit !conflicts -- building needs gst-plugins-base-dev,
+# the moonshine consumers actually run: scream's rtsp/webm/jpeg pipelines, the
+# iss-display controller's gst-launch encode pipelines (static-images, v4l2,
+# mosaic), and its playbin3 media player -- HLS .m3u8 -> H.264, video only,
+# onto waylandsink. No explicit !conflicts -- building needs gst-plugins-base-dev,
 # which a conflict on its parent would break -- but the sets own the same
 # file paths, so apk refuses to install both anyway.
 #
@@ -21,12 +22,14 @@ license="LGPL-2.1-or-later AND GPL-2.0-or-later"
 # built: once scream ships depending on gst-moonshine directly, drop these
 # (see ISSUES.md)
 provides="gst-plugins-base=$pkgver gst-plugins-good=$pkgver
-	gst-plugins-ugly=$pkgver gst-rtsp-server=$pkgver"
+	gst-plugins-ugly=$pkgver gst-plugins-bad=$pkgver gst-rtsp-server=$pkgver"
 provider_priority=10
 makedepends="
+	curl-dev
 	glib-dev
 	gst-plugins-base-dev
 	gstreamer-dev
+	libdrm-dev
 	libjpeg-turbo-dev
 	libogg-dev
 	libpng-dev
@@ -34,9 +37,13 @@ makedepends="
 	libvpx-dev
 	linux-headers
 	meson
+	nettle-dev
 	ninja
+	openh264-dev
 	orc-dev
 	pkgconf
+	wayland-dev
+	wayland-protocols
 	x264-dev
 	zlib-dev
 	"
@@ -44,6 +51,7 @@ source="
 	https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$pkgver.tar.xz
 	https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$pkgver.tar.xz
 	https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-$pkgver.tar.xz
+	https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$pkgver.tar.xz
 	https://gstreamer.freedesktop.org/src/gst-rtsp-server/gst-rtsp-server-$pkgver.tar.xz
 	"
 builddir="$srcdir"
@@ -59,7 +67,13 @@ options="!check"
 #          v4l2src (v4l2), udpsink (udp)
 #   ugly   x264enc, the encoder of the rtsp h264 stream; gpl=enabled is its
 #          license gate, hence GPL in license= above
+#   bad    hlsdemux (hls) and tsdemux (mpegtsdemux) to unwrap an HLS .m3u8,
+#          h264parse (videoparsers) and openh264dec (openh264) to decode it
+#          without gst-libav/ffmpeg, waylandsink (wayland) to put it on the
+#          output, and curlhttpsrc (curl) as the HTTP source -- souphttpsrc
+#          would pull libsoup, which iss-display's Containerfile guard forbids
 #   rtsp-server  the server scream embeds
+# playbin3/decodebin3/uridecodebin3/urisourcebin come from base's playback.
 build() {
 	local common="--auto-features=disabled
 		-Dtests=disabled
@@ -68,6 +82,7 @@ build() {
 	cd "$srcdir/gst-plugins-base-$pkgver"
 	abuild-meson $common \
 		-Dapp=enabled \
+		-Dplayback=enabled \
 		-Dvideoconvertscale=enabled \
 		-Dvideotestsrc=enabled \
 		-Dtypefind=enabled \
@@ -102,6 +117,19 @@ build() {
 		. output
 	meson compile -C output -j "${JOBS:-$(nproc)}"
 
+	cd "$srcdir/gst-plugins-bad-$pkgver"
+	abuild-meson $common \
+		-Dhls=enabled \
+		-Dhls-crypto=nettle \
+		-Dmpegtsdemux=enabled \
+		-Dvideoparsers=enabled \
+		-Dopenh264=enabled \
+		-Dwayland=enabled \
+		-Dcurl=enabled \
+		-Dexamples=disabled \
+		. output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
+
 	cd "$srcdir/gst-rtsp-server-$pkgver"
 	abuild-meson $common \
 		-Dexamples=disabled \
@@ -111,7 +139,7 @@ build() {
 
 package() {
 	local m
-	for m in gst-plugins-base gst-plugins-good gst-plugins-ugly gst-rtsp-server; do
+	for m in gst-plugins-base gst-plugins-good gst-plugins-ugly gst-plugins-bad gst-rtsp-server; do
 		DESTDIR="$pkgdir" meson install --no-rebuild -C "$srcdir/$m-$pkgver/output"
 	done
 	rm -rf "$pkgdir"/usr/include "$pkgdir"/usr/lib/pkgconfig \
@@ -121,5 +149,6 @@ sha512sums="
 768092d8c06996540bb2166051b7b2eca9329ab7f618c9086af6c133b73ac41d52d4e44cad57e79c6e65faca28cf1084765fde068930854733ac8247e85a4d24  gst-plugins-base-1.28.3.tar.xz
 dafa5f402e5b9f590800036fb7c33192135563e39665cf161e44e781a9f82ff5dec5db6e37e6ca4ca2190f32a6ceb796a31246a08854f9c9fa3f7ae2a0281b01  gst-plugins-good-1.28.3.tar.xz
 67b8cfeda68fc755307478dacf150817e42c6200b10fd0367955c3d8ca50bc37e757d41575656c93998ad0c9b92f576b2f9e00272f57f2c2a9403f70ac6c352c  gst-plugins-ugly-1.28.3.tar.xz
+34a66ad2e8186cc9b609495520951c7ca748be450d3b012e67e1af12d7fb915ba3eb75c131e4179829f462bb3554e62e19c01cab75b573e6a17116b3c238847b  gst-plugins-bad-1.28.3.tar.xz
 cdc78fc7dde85b33836f1591a4cc72d2b41ad57c0d3ba7517cb9772ac4a205c76f43c3f0ed2cdc21bd420c6b6fb39532ed83fa61913ef9ba40a3814115bf6602  gst-rtsp-server-1.28.3.tar.xz
 "

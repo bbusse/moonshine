@@ -95,8 +95,16 @@ RUN --mount=type=bind,from=swayfetch,source=/packages,target=/tmp/packages \
 # is a mkdir and a chmod to call
 RUN <<'SCRIPT'
 set -eu
-mkdir -p /etc/sway/config.d /run/user/0
-chmod 0700 /run/user/0
+# The moonshine account comes from the base image (uid 1000). Give it an XDG
+# runtime dir of its own -- 0700 and owned, the way the spec wants it -- so a
+# consumer that keeps the image default gets a clean one without setting
+# anything up. config.d is handed to it too: a consumer's entrypoint drops
+# per-deployment snippets there (a vnc exec line, an output mode) at start,
+# and that runs as moonshine now, not root. /etc/sway/config itself stays
+# root-owned and world-readable.
+mkdir -p /etc/sway/config.d /run/user/1000
+chmod 0700 /run/user/1000
+chown 1000:1000 /run/user/1000 /etc/sway/config.d
 
 cat > /etc/sway/config <<'CFG'
 ### moonshine sway -- minimal, headless by default.
@@ -155,7 +163,8 @@ SMOKE
 chmod 0755 /usr/local/bin/sway-smoke
 SCRIPT
 
-ENV XDG_RUNTIME_DIR=/run/user/0 \
+ENV XDG_RUNTIME_DIR=/run/user/1000 \
+    HOME=/home/moonshine \
     WLR_BACKENDS=headless \
     WLR_RENDERER=pixman \
     WLR_LIBINPUT_NO_DEVICES=1 \
@@ -166,5 +175,9 @@ LABEL org.opencontainers.image.title="moonshine-sway" \
       org.opencontainers.image.description="" \
       org.opencontainers.image.licenses="BSD-3-Clause" \
       org.opencontainers.image.source="https://github.com/bbusse/moonshine"
+
+# Headless sway needs no root. A child that installs packages on top must
+# switch back with `USER root` and end on `USER moonshine` again.
+USER moonshine
 
 CMD ["/usr/bin/sway"]

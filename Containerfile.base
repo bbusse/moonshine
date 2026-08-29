@@ -275,6 +275,27 @@ sed -i "s#^root:x:0:0:root:/root:/bin/sh\$#root:x:0:0:root:/root:${BRUSH}#" \
     "$ROOT/etc/passwd"
 SCRIPT
 
+# A non-root account for images that run an application rather than assemble
+# one. Nothing here switches to it: the base and its build-oriented children
+# stay root, moonshine-sway and downstream flip USER once their runtime is
+# ready. uid/gid are pinned so a consumer's COPY --chown and a host bind mount
+# into it resolve to one identity across the whole image family. There is no
+# adduser here (no busybox, no shadow) so passwd/group are edited the same way
+# the shell setup above edits them; the locked shadow line keeps `su` and
+# anything that stats /etc/shadow happy without granting a password.
+RUN <<'SCRIPT'
+set -eu
+ROOT="${ROOT:?}"
+
+echo 'moonshine:x:1000:1000:moonshine:/home/moonshine:/usr/bin/brush' >> "$ROOT/etc/passwd"
+echo 'moonshine:x:1000:' >> "$ROOT/etc/group"
+[ -f "$ROOT/etc/shadow" ] && echo 'moonshine:!::0:::::' >> "$ROOT/etc/shadow"
+install -d -o 1000 -g 1000 -m 0755 "$ROOT/home/moonshine"
+
+[ "$(awk -F: '$1=="moonshine"{print $3":"$4}' "$ROOT/etc/passwd")" = 1000:1000 ] \
+    || { echo "moonshine account inconsistent in passwd" >&2; exit 1; }
+SCRIPT
+
 # uutils, when asked for. Signed by the same apk-releases key as brush -- this
 # package is built and released by this repo's own CI (see
 # .github/workflows/build-apk.yml), so the asset name carries both its

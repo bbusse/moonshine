@@ -111,6 +111,28 @@ test_root_login_shell_is_brush() {
 test_baselayout_data_etc_group() {
     base_fs 'grep -q "^wheel:" etc/group' || fail "/etc/group is missing the wheel group"
 }
+# The non-root account every application image runs as. uid/gid 1000 is a
+# contract: a consumer's COPY --chown and a host bind mount both name it
+test_moonshine_account_present() {
+    base_fs 'grep -q "^moonshine:x:1000:1000:" etc/passwd' \
+        || fail "moonshine account missing or not uid 1000 in /etc/passwd"
+    base_fs 'grep -q "^moonshine:x:1000:" etc/group' \
+        || fail "moonshine group missing or not gid 1000 in /etc/group"
+    base_fs 'test "$(stat -c %u:%g home/moonshine)" = 1000:1000' \
+        || fail "/home/moonshine is not owned by 1000:1000"
+}
+# A passwd entry with no matching shadow line trips anything that cross-checks
+# the two; the line exists and the password is locked
+test_moonshine_account_shadow_locked() {
+    base_fs 'grep -q "^moonshine:!" etc/shadow' \
+        || fail "moonshine has no locked shadow entry"
+}
+# The base and its build-oriented children still run as root -- USER is flipped
+# in moonshine-sway and downstream, not here
+test_base_runs_as_root() {
+    run_in "$BASE_IMAGE" /bin/sh -c '[ "$EUID" = 0 ]' \
+        || fail "the base image no longer runs as root"
+}
 test_ca_bundle_present() {
     base_fs 'test -s etc/ssl/certs/ca-certificates.crt' || fail "CA bundle missing or empty"
 }
@@ -322,6 +344,25 @@ test_sway_runs_without_extra_caps() {
 test_sway_comes_up_headless() {
     $ENGINE run --rm "$SWAY_IMAGE" /bin/sh /usr/local/bin/sway-smoke | grep -q '"width": 1280' \
         || fail "sway did not come up headless at the expected size"
+}
+# Headless sway needs no root, so the image drops to the moonshine account
+test_sway_runs_as_moonshine() {
+    run_in "$SWAY_IMAGE" /bin/sh -c '[ "$EUID" = 1000 ]' \
+        || fail "the sway image does not run as uid 1000"
+    [ "$($ENGINE image inspect -f '{{.Config.User}}' "$SWAY_IMAGE")" = moonshine ] \
+        || fail "the sway image Config.User is not moonshine"
+}
+# The image-default XDG_RUNTIME_DIR: 0700 and owned by moonshine, so a
+# consumer that does not override it gets a spec-compliant runtime dir
+test_sway_runtime_dir_owned_0700() {
+    sway_fs 'test "$(stat -c "%u:%g %a" run/user/1000)" = "1000:1000 700"' \
+        || fail "/run/user/1000 is not 1000:1000 mode 700"
+}
+# A consumer's entrypoint drops per-deployment snippets into config.d at
+# start, running as moonshine, so the directory has to be writable by it
+test_sway_config_d_owned_by_moonshine() {
+    sway_fs 'test "$(stat -c %u:%g etc/sway/config.d)" = 1000:1000' \
+        || fail "/etc/sway/config.d is not owned by 1000:1000"
 }
 
 # mesa-llvmpipe has llvm in its own name and links it statically, so what must
