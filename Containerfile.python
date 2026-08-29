@@ -6,7 +6,7 @@
 
 ARG APK_IMAGE=moonshine-apk:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc5
+ARG MOONSHINE_VERSION=v0-rc9
 ARG UUTILS_PKGVER=0.10.0
 ARG UUTILS_PKGREL=4
 
@@ -37,8 +37,8 @@ cat > /checksums.txt <<'SUMS'
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with:
 #   make uutils-checksums MOONSHINE_VERSION=<tag> UUTILS_PKGVER=<x.y.z> UUTILS_PKGREL=<n>
-6a47d47be6d86543afb9c56a39519187dd23fe11e003e22c7697547faa246310  uutils-0.10.0-r4.aarch64-v0-rc5.apk
-13b8591001ee2dd71a20b3f9e2c019f2228695cdc046dccbcda08fad74507b04  uutils-0.10.0-r4.x86_64-v0-rc5.apk
+e37a0bedf023654280d27beb8bfa6ad37c33acd7e2249b7bdf10e37467a24888  uutils-0.10.0-r4.aarch64-v0-rc9.apk
+a4f78b27488ef4a78df148368b9ad4430cf168c8a77598714cbd456cebc4ac85  uutils-0.10.0-r4.x86_64-v0-rc9.apk
 SUMS
 SCRIPT
 

@@ -6,9 +6,9 @@
 
 ARG APK_IMAGE=moonshine-apk:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc5
+ARG MOONSHINE_VERSION=v0-rc9
 ARG SWAY_PKGVER=1.12
-ARG SWAY_PKGREL=0
+ARG SWAY_PKGREL=1
 ARG UUTILS_PKGVER=0.10.0
 ARG UUTILS_PKGREL=4
 
@@ -40,10 +40,10 @@ cat > /checksums.txt <<'SUMS'
 # sha256 of the sway-pixman apks published at
 # https://github.com/bbusse/moonshine/releases
 # Regenerate with: make sway-checksums MOONSHINE_VERSION=<tag> SWAY_PKGVER=<x.y.z> SWAY_PKGREL=<n>
-e12ee3c3e9a19123a59bc557d5c2ac63f178be2950268fd9388af612f78407f9  sway-pixman-1.12-r0.aarch64-v0-rc5.apk
-3f6c2b31d22fb0909e9c2912f1a56c679583e130a9ac2c82e7ade3e19d0e6b6e  sway-pixman-1.12-r0.x86_64-v0-rc5.apk
-6a47d47be6d86543afb9c56a39519187dd23fe11e003e22c7697547faa246310  uutils-0.10.0-r4.aarch64-v0-rc5.apk
-13b8591001ee2dd71a20b3f9e2c019f2228695cdc046dccbcda08fad74507b04  uutils-0.10.0-r4.x86_64-v0-rc5.apk
+57260e08936bdcdd0f61dd088a1a59d6d280e19b15ed5ade995d0b193a4e8356  sway-pixman-1.12-r1.aarch64-v0-rc9.apk
+85970225eb846989dc38d0143ff33277591f5c5b4fc464e14d5c9967ebd1c878  sway-pixman-1.12-r1.x86_64-v0-rc9.apk
+e37a0bedf023654280d27beb8bfa6ad37c33acd7e2249b7bdf10e37467a24888  uutils-0.10.0-r4.aarch64-v0-rc9.apk
+a4f78b27488ef4a78df148368b9ad4430cf168c8a77598714cbd456cebc4ac85  uutils-0.10.0-r4.x86_64-v0-rc9.apk
 SUMS
 SCRIPT
 

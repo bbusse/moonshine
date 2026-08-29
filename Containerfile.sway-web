@@ -5,7 +5,7 @@
 
 ARG SWAY_IMAGE=moonshine-sway:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc5
+ARG MOONSHINE_VERSION=v0-rc9
 ARG MESA_PKGVER=26.1.6
 ARG MESA_PKGREL=0
 # softpipe or llvmpipe -- see the comment on the install below
@@ -35,14 +35,14 @@ LMR0onqB3UphAvYeW+z5zBsCAwEAAQ==
 -----END PUBLIC KEY-----
 KEY
 cat > /checksums.txt <<'SUMS'
-# sha256 of the mesa-softpipe apks published at
+# sha256 of the mesa apks published at
 # https://github.com/bbusse/moonshine/releases
 # Both flavours are pinned; MESA_FLAVOUR decides which one is fetched
 # Regenerate with: make mesa-checksums MOONSHINE_VERSION=<tag> MESA_PKGVER=<x.y.z> MESA_PKGREL=<n>
-fdbc830251a497a8ae73638a1e446984d273eb7038223fc639cb0b5d350d4e46  mesa-softpipe-26.1.6-r0.aarch64-v0-rc5.apk
-fd7f9cafe6bc1416151bbc4fed6d00230053534b80b39290da3bafc75aa37bda  mesa-softpipe-26.1.6-r0.x86_64-v0-rc5.apk
-b52ece39d726dcd746482c728553a9fef69c5f5825e140c324474361ed896261  mesa-llvmpipe-26.1.6-r0.aarch64-v0-rc5.apk
-96be544af2e7e2ef9fb4f1647587074068c914a488bfcea07c47775318e61e38  mesa-llvmpipe-26.1.6-r0.x86_64-v0-rc5.apk
+b1e9332fe92356a4cf24d3d7b30f32b4fdadd416a66f49b510643eebc72d5bc6  mesa-softpipe-26.1.6-r0.aarch64-v0-rc9.apk
+326300d840aa29bdad5261f4897ca0ee14b20db9dd2dfd3e493953d0aad45cab  mesa-softpipe-26.1.6-r0.x86_64-v0-rc9.apk
+ce529c61c04cffb534c41e86d7945af9be98c09977017496e5ce6f9fa66c1cf5  mesa-llvmpipe-26.1.6-r0.aarch64-v0-rc9.apk
+686c48df59bfb30134f5094c51ce3ab38745329d67673c9ea030924fe5afb426  mesa-llvmpipe-26.1.6-r0.x86_64-v0-rc9.apk
 SUMS
 SCRIPT
 
@@ -73,6 +73,16 @@ fetch_apk() {
 
 mkdir -p /packages
 fetch_apk "mesa-${MESA_FLAVOUR}-${MESA_PKGVER}-r${MESA_PKGREL}.${ARCH}-${MOONSHINE_VERSION}.apk" mesa.apk
+
+# python-wayland consumers parse these two protocol XMLs at startup, and apk
+# only ships them inside -dev packages that drag linux-headers and pkgconf
+# into a runtime image. This image is the wayland base its consumers build on,
+# so it carries the data files
+apk add --no-cache wayland-dev wayland-protocols >/dev/null
+mkdir -p /protocols/wayland /protocols/wayland-protocols/stable/xdg-shell
+cp /usr/share/wayland/wayland.xml /protocols/wayland/
+cp /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
+   /protocols/wayland-protocols/stable/xdg-shell/
 SCRIPT
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS glstub
@@ -133,6 +143,7 @@ SCRIPT
 
 FROM ${SWAY_IMAGE}
 
+COPY --from=mesafetch /protocols/ /usr/share/
 COPY --from=glstub /out/moonshine-local.rsa.pub /etc/apk/keys/moonshine-local.rsa.pub
 
 # Two software rasterizers, one installed: softpipe links no llvm at all and
@@ -151,11 +162,19 @@ apk add --no-cache \
     font-dejavu \
     font-awesome
 
+# A browser wants regular, bold and italic in sans, serif and mono; the
+# condensed, math and extralight faces have no consumer here and are half the
+# package. Removed in the layer that installed them, so the bytes never ship
+cd /usr/share/fonts/dejavu
+rm -f DejaVuSansCondensed*.ttf DejaVuSerifCondensed*.ttf \
+      DejaVuMathTeXGyre.ttf DejaVuSans-ExtraLight.ttf
+cd /
+
 fc-cache -f
 
 found="$(apk info -e mesa mesa-gl mesa-egl mesa-gles llvm22-libs x265-libs libSvtAv1Enc 2>/dev/null || true)"
 if [ -n "$found" ]; then
-    echo "pulled in by the solver despite mesa-softpipe: $found" >&2
+    echo "pulled in by the solver despite the moonshine mesa: $found" >&2
     exit 1
 fi
 

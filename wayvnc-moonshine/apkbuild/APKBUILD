@@ -1,0 +1,66 @@
+# Contributor: Björn Busse <bj.rn@baerlin.eu>
+# Maintainer: Björn Busse <bj.rn@baerlin.eu>
+pkgname=wayvnc-moonshine
+pkgver=0.10.0
+_neatvnc=1.0.0
+pkgrel=0
+pkgdesc="wayvnc with a neatvnc built without its ffmpeg h264 encoder linked in"
+url="https://github.com/any1/wayvnc"
+arch="all"
+license="ISC"
+# Alpine's neatvnc links libavcodec/avfilter/avutil for an h264 encoding the
+# we do not use, saves 89 packages and ~110 MB
+depends="!wayvnc"
+makedepends="
+	aml-dev
+	gnutls-dev
+	jansson-dev
+	libdrm-dev
+	libjpeg-turbo-dev
+	libxkbcommon-dev
+	linux-headers
+	mesa-dev
+	meson
+	ninja
+	pixman-dev
+	pkgconf
+	wayland-dev
+	wayland-protocols
+	zlib-dev
+	"
+source="
+	neatvnc-$_neatvnc.tar.gz::https://github.com/any1/neatvnc/archive/refs/tags/v$_neatvnc.tar.gz
+	wayvnc-$pkgver.tar.gz::https://github.com/any1/wayvnc/archive/refs/tags/v$pkgver.tar.gz
+	"
+builddir="$srcdir/wayvnc-$pkgver"
+options="!check"
+
+build() {
+	# Installed into a prefix of its own so wayvnc's build finds headers and
+	# the static archive at the paths the .pc files claim
+	cd "$srcdir/neatvnc-$_neatvnc"
+	meson setup output \
+		--default-library=static \
+		--prefix="$srcdir/nvnc" \
+		--libdir="$srcdir/nvnc/lib" \
+		--buildtype=release \
+		-Dh264=disabled \
+		-Dexamples=false \
+		-Dtests=false
+	meson compile -C output -j "${JOBS:-$(nproc)}"
+	meson install -C output
+
+	cd "$builddir"
+	export PKG_CONFIG_PATH="$srcdir/nvnc/lib/pkgconfig"
+	abuild-meson . output
+	meson compile -C output -j "${JOBS:-$(nproc)}"
+}
+
+package() {
+	cd "$builddir"
+	install -Dm755 output/wayvnc "$pkgdir"/usr/bin/wayvnc
+}
+sha512sums="
+8a47611cf5ca94e87777052f53f9ecbd9673ab0fe970feeaae225f4d81af6f6945e3fb5620cc154db8fa57567188e9213340b3f46913e8cbf7999e70095a7c39  neatvnc-1.0.0.tar.gz
+4714807754142603d781ad3dff02cfbd9b03ec608e87a4b7cc361212d42c9d8d03ce8c440c0866ab38878847efd4e15063b08ae985d606410419162bbd23b06f  wayvnc-0.10.0.tar.gz
+"
