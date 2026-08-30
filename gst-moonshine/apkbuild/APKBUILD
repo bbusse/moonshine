@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=gst-moonshine
 pkgver=1.28.3
-pkgrel=2
+pkgrel=3
 pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
 url="https://gstreamer.freedesktop.org"
 arch="all"
@@ -12,8 +12,9 @@ license="LGPL-2.1-or-later AND GPL-2.0-or-later"
 # packages and 32 MB for elements nothing here instantiates. These build what
 # the moonshine consumers actually run: scream's rtsp/webm/jpeg pipelines, the
 # iss-display controller's gst-launch encode pipelines (static-images, v4l2,
-# mosaic), and its playbin3 media player -- HLS .m3u8 -> H.264, video only,
-# onto waylandsink. No explicit !conflicts -- building needs gst-plugins-base-dev,
+# mosaic), and its gst-launch media player -- curlhttpsrc ! hlsdemux ! tsdemux
+# ! h264parse ! openh264dec ! videoconvert ! waylandsink, video only. No
+# explicit !conflicts -- building needs gst-plugins-base-dev,
 # which a conflict on its parent would break -- but the sets own the same
 # file paths, so apk refuses to install both anyway.
 #
@@ -81,7 +82,6 @@ build() {
 	cd "$srcdir/gst-plugins-base-$pkgver"
 	abuild-meson $common \
 		-Dapp=enabled \
-		-Dplayback=enabled \
 		-Dvideoconvertscale=enabled \
 		-Dvideotestsrc=enabled \
 		-Dtypefind=enabled \
@@ -90,7 +90,7 @@ build() {
 		-Dogg=enabled \
 		-Dtcp=enabled \
 		-Drawparse=enabled \
-		-Dtools=enabled \
+		-Dtools=disabled \
 		-Dexamples=disabled \
 		. output
 	meson compile -C output -j "${JOBS:-$(nproc)}"
@@ -142,8 +142,7 @@ package() {
 		DESTDIR="$pkgdir" meson install --no-rebuild -C "$srcdir/$m-$pkgver/output"
 	done
 	rm -rf "$pkgdir"/usr/include "$pkgdir"/usr/lib/pkgconfig \
-	       "$pkgdir"/usr/share/gir-1.0 "$pkgdir"/usr/lib/girepository-1.0 \
-	       "$pkgdir"/usr/share/man
+	       "$pkgdir"/usr/share/gir-1.0 "$pkgdir"/usr/lib/girepository-1.0
 }
 sha512sums="
 768092d8c06996540bb2166051b7b2eca9329ab7f618c9086af6c133b73ac41d52d4e44cad57e79c6e65faca28cf1084765fde068930854733ac8247e85a4d24  gst-plugins-base-1.28.3.tar.xz
