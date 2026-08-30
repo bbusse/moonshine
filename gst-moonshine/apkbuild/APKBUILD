@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=gst-moonshine
 pkgver=1.28.3
-pkgrel=4
+pkgrel=5
 pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
 url="https://gstreamer.freedesktop.org"
 arch="all"
@@ -63,9 +63,11 @@ builddir="$srcdir"
 options="!check"
 
 # What each module contributes, from scream's and the controller's pipelines:
-#   base   appsrc, videoconvert/videoscale, videotestsrc; theoraenc, oggmux
-#          and tcpserversink for the controller's static-images/v4l2 streams,
-#          rawvideoparse (rawparse) framing the mosaic stream's raw BGRA;
+#   base   appsrc, videoconvert/videoscale, videotestsrc, videorate (the
+#          media player halves the broadcast's 50fps to 25 before the software
+#          convert path); theoraenc, oggmux and tcpserversink for the
+#          controller's static-images/v4l2 streams, rawvideoparse (rawparse)
+#          framing the mosaic stream's raw BGRA;
 #          audioconvert, audioresample and opus (opusenc/opusdec) for the
 #          media player's stream audio, encoded to opus and relayed to scream
 #          over rtp; and the libraries the other modules and the rtsp server
@@ -93,6 +95,7 @@ build() {
 	abuild-meson $common \
 		-Dapp=enabled \
 		-Dvideoconvertscale=enabled \
+		-Dvideorate=enabled \
 		-Dvideotestsrc=enabled \
 		-Dtypefind=enabled \
 		-Dorc=enabled \
