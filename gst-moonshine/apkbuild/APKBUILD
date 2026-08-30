@@ -2,7 +2,7 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=gst-moonshine
 pkgver=1.28.3
-pkgrel=1
+pkgrel=2
 pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
 url="https://gstreamer.freedesktop.org"
 arch="all"
@@ -73,7 +73,6 @@ options="!check"
 #          output, and curlhttpsrc (curl) as the HTTP source -- souphttpsrc
 #          would pull libsoup, which iss-display's Containerfile guard forbids
 #   rtsp-server  the server scream embeds
-# playbin3/decodebin3/uridecodebin3/urisourcebin come from base's playback.
 build() {
 	local common="--auto-features=disabled
 		-Dtests=disabled
@@ -91,7 +90,7 @@ build() {
 		-Dogg=enabled \
 		-Dtcp=enabled \
 		-Drawparse=enabled \
-		-Dtools=disabled \
+		-Dtools=enabled \
 		-Dexamples=disabled \
 		. output
 	meson compile -C output -j "${JOBS:-$(nproc)}"
@@ -143,7 +142,8 @@ package() {
 		DESTDIR="$pkgdir" meson install --no-rebuild -C "$srcdir/$m-$pkgver/output"
 	done
 	rm -rf "$pkgdir"/usr/include "$pkgdir"/usr/lib/pkgconfig \
-	       "$pkgdir"/usr/share/gir-1.0 "$pkgdir"/usr/lib/girepository-1.0
+	       "$pkgdir"/usr/share/gir-1.0 "$pkgdir"/usr/lib/girepository-1.0 \
+	       "$pkgdir"/usr/share/man
 }
 sha512sums="
 768092d8c06996540bb2166051b7b2eca9329ab7f618c9086af6c133b73ac41d52d4e44cad57e79c6e65faca28cf1084765fde068930854733ac8247e85a4d24  gst-plugins-base-1.28.3.tar.xz
