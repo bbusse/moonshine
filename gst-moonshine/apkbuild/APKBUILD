@@ -71,13 +71,14 @@ options="!check"
 #          over rtp; and the libraries the other modules and the rtsp server
 #          link
 #   good   rtph264pay/rtpopuspay/rtpopusdepay (rtp), rtpbin and rtpjitterbuffer
-#          (rtpmanager), vp8enc (vpx), jpegenc/jpegdec (jpeg), webmmux
+#          (rtpmanager), aacparse (audioparsers) to frame the media player's
+#          stream audio, vp8enc (vpx), jpegenc/jpegdec (jpeg), webmmux
 #          (matroska), pngdec (png), v4l2src (v4l2), udpsink (udp)
 #   ugly   x264enc, the encoder of the rtsp h264 stream; gpl=enabled is its
 #          license gate, hence GPL in license= above
 #   bad    hlsdemux (hls) and tsdemux (mpegtsdemux) to unwrap an HLS .m3u8,
 #          h264parse (videoparsers) and openh264dec (openh264) to decode its
-#          video, aacparse (audioparsers) and fdkaacdec (fdkaac) its audio --
+#          video, fdkaacdec (fdkaac) to decode its AAC audio --
 #          all without gst-libav/ffmpeg -- waylandsink (wayland) to put the
 #          video on the output, and curlhttpsrc (curl) as the HTTP source;
 #          souphttpsrc would pull libsoup, which iss-display's Containerfile
@@ -111,6 +112,7 @@ build() {
 	abuild-meson $common \
 		-Drtp=enabled \
 		-Drtpmanager=enabled \
+		-Daudioparsers=enabled \
 		-Dvpx=enabled \
 		-Djpeg=enabled \
 		-Dmatroska=enabled \
@@ -134,7 +136,6 @@ build() {
 		-Dhls-crypto=nettle \
 		-Dmpegtsdemux=enabled \
 		-Dvideoparsers=enabled \
-		-Daudioparsers=enabled \
 		-Dopenh264=enabled \
 		-Dfdkaac=enabled \
 		-Dwayland=enabled \
