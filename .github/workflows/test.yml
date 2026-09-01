@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  test-bash-unit:
+    uses: bbusse/github-workflows/.github/workflows/run-tests-bash-unit.yml@dev
+    with:
+      test_files: tests/tests.sh
+      install_klue_test_deps: false
+
+  # The reusable workflow above runs the suite at the default UTILS=none, where
+  # every test_uutils_* body starts with `[ "$UTILS" != none ] || return 0` --
+  # bash_unit reports those skips as SUCCESS, indistinguishably from a real
+  # pass. This leg runs the same file with UTILS=uutils so the base image
+  # actually fetches the uutils apk and those three tests assert something.
+  #
+  # Written out rather than reused: run-tests-bash-unit.yml sets a fixed env
+  # (TERM, STICK_TO_CWD, QEMU_ARCH) and has no passthrough for UTILS
+  test-bash-unit-uutils:
+    runs-on: ubuntu-latest
+    env:
+      TERM: xterm-256color
+      UTILS: uutils
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install bash_unit
+        run: git clone --depth 1 https://github.com/pgrange/bash_unit.git /tmp/bash_unit
+
+      - name: Run bash_unit tests with uutils
+        env:
+          STICK_TO_CWD: "true"
+        run: /tmp/bash_unit/bash_unit tests/tests.sh
