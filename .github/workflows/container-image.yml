@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Björn Busse <bj.rn@baerlin.eu>
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Build and push container images
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'rc-*'
+      - 'release-*'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+jobs:
+  container-build-push-base:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-base'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.base
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+
+  # Same recipe as the base image, built again with apk on board. Needs the
+  # build_args input on container-build-push.yml
+  container-build-push-apk:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-apk'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.base
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      build_args: |
+        WITH_APK=1
+
+  # CPython on top of the apk image, for applications that ship a virtualenv
+  # rather than a compositor. Waits on the apk image the same way sway does
+  container-build-push-python:
+    needs: container-build-push-apk
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-python'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.python
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      build_args: |
+        APK_IMAGE=ghcr.io/bbusse/moonshine-apk:latest
+
+  # Built on top of the apk image, so it has to wait for that one to be pushed
+  # and then pull it by its registry name rather than the local tag
+  container-build-push-sway:
+    needs: container-build-push-apk
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-sway'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.sway
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      build_args: |
+        APK_IMAGE=ghcr.io/bbusse/moonshine-apk:latest
+
+  # A software-only mesa on top of the sway image, for applications that
+  # display a browser rather than drawing their own windows
+  container-build-push-sway-web:
+    needs: container-build-push-sway
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-sway-web'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.sway-web
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      image_additional_tags: softpipe
+      # Both sway-web jobs share an image_name, so both name their variant or
+      # their digest artifacts collide and each manifest gets the other's
+      image_variant: softpipe
+      build_args: |
+        SWAY_IMAGE=ghcr.io/bbusse/moonshine-sway:latest
+
+  # The llvmpipe half of the pair, in the same repository under a single tag.
+  # It takes none of the default tags: both variants build from the same commit,
+  # so they would otherwise race for latest, sha-<revision> and the ref-derived
+  # tag, and whichever pushed last would win
+  container-build-push-sway-web-llvmpipe:
+    needs: container-build-push-sway
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-sway-web'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.sway-web
+      container_registry: 'ghcr'
+      container_push_to_registry: true
+      image_tag: llvmpipe
+      image_default_tags: 'false'
+      image_variant: llvmpipe
+      build_args: |
+        SWAY_IMAGE=ghcr.io/bbusse/moonshine-sway:latest
+        MESA_FLAVOUR=llvmpipe
+
+  container-build-push-brush:
+    uses: bbusse/github-workflows/.github/workflows/container-build-push.yml@dev
+    with:
+      image_name: 'moonshine-brush'
+      image_platforms: linux/amd64,linux/arm64
+      image_repository: 'ghcr.io/bbusse'
+      container_file: Containerfile.brush
+      container_registry: 'ghcr'
+      container_push_to_registry: true
