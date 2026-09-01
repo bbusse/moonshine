@@ -34,8 +34,8 @@ SWAY_PKGREL   ?= 1
 
 # uutils, from uutils/apkbuild/APKBUILD. Which utilities it contains is
 # set by _utils in that file, not here
-UUTILS_PKGVER ?= 0.10.0
-UUTILS_PKGREL ?= 4
+UUTILS_PKGVER ?= 0.11.0
+UUTILS_PKGREL ?= 0
 
 # mesa, from mesa-{softpipe,llvmpipe}/apkbuild/APKBUILD. pkgver tracks the mesa
 # release both build. MESA_FLAVOUR picks which one sway-web installs: softpipe

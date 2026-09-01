@@ -1,8 +1,8 @@
 # Contributor: Björn Busse <bj.rn@baerlin.eu>
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=uutils
-pkgver=0.10.0
-pkgrel=4
+pkgver=0.11.0
+pkgrel=0
 pkgdesc="uutils coreutils, built as one multicall binary with only the utilities moonshine needs"
 url="https://github.com/uutils/coreutils"
 arch="all"
@@ -84,5 +84,5 @@ package() {
 	done
 }
 sha512sums="
-cd5bc2b491ad36e559678aa45578c1646d48f4421abb1944195282acea4e5c6c1f9556c3fd2758cc7e37a1995fd5e2e1b94dfb91b6826f4e4c9bf8ddb7e50fd8  uutils-coreutils-0.10.0.tar.gz
+e6fb56df6a02403ef8887b32fe14113162fdcf673ccc6ec2c96c811c461cabf91d5e002c0969506a63323b47369ad19c2a74bd2029f87788f6ef4d47e07277b5  uutils-coreutils-0.11.0.tar.gz
 "
