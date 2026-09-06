@@ -2,12 +2,13 @@
 # Maintainer: Björn Busse <bj.rn@baerlin.eu>
 pkgname=gst-moonshine
 pkgver=1.28.3
-pkgrel=5
+pkgrel=6
 pkgdesc="The gstreamer plugin set moonshine consumers need, and nothing beyond it"
 url="https://gstreamer.freedesktop.org"
 arch="all"
 # fdkaac carries the Fraunhofer FDK AAC Codec Library licence, added for the
-# media player's stream audio (fdkaacdec, no gst-libav)
+# media player's stream audio (fdkaacdec, no gst-libav) and the aac in
+# scream's mpeg-ts streams (fdkaacenc)
 license="LGPL-2.1-or-later AND GPL-2.0-or-later AND custom:fdk-aac"
 # Alpine's packages ship every plugin, and gst-plugins-good alone pulls
 # libsoup, gnutls, pulseaudio, FireWire and a tail of audio codecs -- 56
@@ -84,7 +85,10 @@ options="!check"
 #          all without gst-libav/ffmpeg -- waylandsink (wayland) to put the
 #          video on the output, and curlhttpsrc (curl) as the HTTP source;
 #          souphttpsrc would pull libsoup, which iss-display's Containerfile
-#          guard forbids
+#          guard forbids. Going the other way, mpegtsmux (mpegtsmux) wraps
+#          scream's /stream.ts and hls segments, with h264parse putting the
+#          SPS/PPS in front of every keyframe and fdkaacenc (fdkaac) encoding
+#          their audio
 #   rtsp-server  the server scream embeds
 build() {
 	local common="--auto-features=disabled
@@ -138,6 +142,7 @@ build() {
 		-Dhls=enabled \
 		-Dhls-crypto=nettle \
 		-Dmpegtsdemux=enabled \
+		-Dmpegtsmux=enabled \
 		-Dvideoparsers=enabled \
 		-Dopenh264=enabled \
 		-Dfdkaac=enabled \
