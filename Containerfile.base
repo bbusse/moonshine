@@ -31,13 +31,8 @@ ARG UTILS=none
 # published under (from uutils/apkbuild/APKBUILD). Only read when
 # UTILS=uutils
 ARG MOONSHINE_VERSION=v0-rc18
-<<<<<<< Updated upstream
-ARG UUTILS_PKGVER=0.10.0
-ARG UUTILS_PKGREL=4
-=======
 ARG UUTILS_PKGVER=0.11.0
 ARG UUTILS_PKGREL=0
->>>>>>> Stashed changes
 
 # Put apk itself in the image
 ARG WITH_APK=0
