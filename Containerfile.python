@@ -7,8 +7,13 @@
 ARG APK_IMAGE=moonshine-apk:latest
 ARG ALPINE_TAG=3.24
 ARG MOONSHINE_VERSION=v0-rc18
+<<<<<<< Updated upstream
 ARG UUTILS_PKGVER=0.10.0
 ARG UUTILS_PKGREL=4
+=======
+ARG UUTILS_PKGVER=0.11.0
+ARG UUTILS_PKGREL=0
+>>>>>>> Stashed changes
 
 FROM docker.io/library/alpine:${ALPINE_TAG} AS pyfetch
 ARG MOONSHINE_VERSION
