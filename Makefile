@@ -27,7 +27,7 @@ UTILS         ?= none
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists
-MOONSHINE_VERSION ?= v0-rc9
+MOONSHINE_VERSION ?= v0-rc18
 
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 1
