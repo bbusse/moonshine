@@ -5,7 +5,7 @@
 
 ARG SWAY_IMAGE=moonshine-sway:latest
 ARG ALPINE_TAG=3.24
-ARG MOONSHINE_VERSION=v0-rc18
+ARG MOONSHINE_VERSION=v0-rc19
 ARG MESA_PKGVER=26.1.6
 ARG MESA_PKGREL=0
 # softpipe or llvmpipe -- see the comment on the install below
@@ -39,10 +39,10 @@ cat > /checksums.txt <<'SUMS'
 # https://github.com/bbusse/moonshine/releases
 # Both flavours are pinned; MESA_FLAVOUR decides which one is fetched
 # Regenerate with: make mesa-checksums MOONSHINE_VERSION=<tag> MESA_PKGVER=<x.y.z> MESA_PKGREL=<n>
-6054e45c3bf10a0cca6ec59b232f049bea0325b5fa19bce400f25d41f827c090  mesa-softpipe-26.1.6-r0.aarch64-v0-rc18.apk
-359cb461af64989401f228c331c407a3b7cd35e438afa04ad5951a339133ac65  mesa-softpipe-26.1.6-r0.x86_64-v0-rc18.apk
-105bc0d23a78ebfefd9338070f84886b7dba68127cd78b1af4de63663f1286b5  mesa-llvmpipe-26.1.6-r0.aarch64-v0-rc18.apk
-b4a95b04e0e80271ee0dcc9e2781f8ee78852e47e10ed227b783c169184ef53e  mesa-llvmpipe-26.1.6-r0.x86_64-v0-rc18.apk
+e630f10a13df59e23bb06f426ee69bcd1be3df3db3df65b0762d872c280852cb  mesa-softpipe-26.1.6-r0.aarch64-v0-rc19.apk
+0686708e76a879719c5af9fda98d492d3eda959586386cc736ac6d58e4396894  mesa-softpipe-26.1.6-r0.x86_64-v0-rc19.apk
+4a7275beedf3b3f0069eb88e6a730e2fad2730a442af63a8523c6216f21facfc  mesa-llvmpipe-26.1.6-r0.aarch64-v0-rc19.apk
+fb85f02bae7088c157eb55de8221b13750c3706c7fb50ddbbb7a53aba7c08c53  mesa-llvmpipe-26.1.6-r0.x86_64-v0-rc19.apk
 SUMS
 SCRIPT
 
