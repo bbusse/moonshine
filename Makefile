@@ -27,14 +27,14 @@ UTILS         ?= none
 # release`) and the sway-pixman pkgver/pkgrel it published, from
 # sway-pixman/apkbuild/APKBUILD. No default for MOONSHINE_VERSION: there is nothing
 # sensible to fall back to before a release exists
-MOONSHINE_VERSION ?= v0-rc18
+MOONSHINE_VERSION ?= v0-rc19
 
 SWAY_PKGVER   ?= 1.12
 SWAY_PKGREL   ?= 1
 
 # uutils, from uutils/apkbuild/APKBUILD. Which utilities it contains is
 # set by _utils in that file, not here
-UUTILS_PKGVER ?= 0.11.0
+UUTILS_PKGVER ?= 0.12.0
 UUTILS_PKGREL ?= 0
 
 # mesa, from mesa-{softpipe,llvmpipe}/apkbuild/APKBUILD. pkgver tracks the mesa
@@ -54,7 +54,7 @@ PYTHON_ARGS  = --build-arg ALPINE_TAG=$(ALPINE_TAG) $(UUTILS_ARGS)
 SWAY_ARGS    = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg SWAY_PKGVER=$(SWAY_PKGVER) --build-arg SWAY_PKGREL=$(SWAY_PKGREL) --build-arg UUTILS_PKGVER=$(UUTILS_PKGVER) --build-arg UUTILS_PKGREL=$(UUTILS_PKGREL)
 SWAY_WEB_ARGS = --build-arg MOONSHINE_VERSION=$(MOONSHINE_VERSION) --build-arg MESA_PKGVER=$(MESA_PKGVER) --build-arg MESA_PKGREL=$(MESA_PKGREL) --build-arg MESA_FLAVOUR=$(MESA_FLAVOUR)
 
-.PHONY: all base brush apk python sway sway-web test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums mesa-checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
+.PHONY: all base brush apk python sway sway-web test sizes lock shell brush-shell brush-checksums sway-checksums uutils-checksums mesa-checksums checksums clean help release release-candidate rc _check-remote _check-branch _check-up-to-date
 
 all: base apk brush python sway sway-web ## build every image
 
@@ -140,6 +140,8 @@ mesa-checksums: ## re-pin both mesa apk checksums for MOONSHINE_VERSION/MESA_PKG
 	  mesa-softpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).x86_64-$(MOONSHINE_VERSION).apk \
 	  mesa-llvmpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).aarch64-$(MOONSHINE_VERSION).apk \
 	  mesa-llvmpipe-$(MESA_PKGVER)-r$(MESA_PKGREL).x86_64-$(MOONSHINE_VERSION).apk)
+
+checksums: brush-checksums sway-checksums uutils-checksums mesa-checksums ## re-pin every apk checksum for the current versions
 
 clean: ## remove built images
 	-$(ENGINE) rmi -f $(BASE_IMAGE) $(BRUSH_IMAGE) $(APK_IMAGE) $(PYTHON_IMAGE) $(SWAY_IMAGE) $(SWAY_WEB_IMAGE) 2>/dev/null
