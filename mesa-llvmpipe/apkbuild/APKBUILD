@@ -43,7 +43,10 @@ build() {
 	# interprets them and stops at 3.3. wgpu needs the compute shaders that
 	# arrived in 4.3, so this is the build that runs it. shared-llvm=disabled
 	# is what keeps llvm22-libs out of the runtime dependencies
+	export CFLAGS="$CFLAGS -O2"
+	export CXXFLAGS="$CXXFLAGS -O2"
 	abuild-meson \
+		-Db_ndebug=true \
 		-Dplatforms=wayland \
 		-Dgallium-drivers=llvmpipe \
 		-Dvulkan-drivers= \
